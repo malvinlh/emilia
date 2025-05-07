@@ -8,6 +8,7 @@ public class SceneButtonHandler : MonoBehaviour
     {
         if (SceneFlowManager.Instance != null)
         {
+            Debug.Log("Button clicked");
             SceneFlowManager.Instance.LoadSceneByKey(targetSceneKey);
         }
         else
