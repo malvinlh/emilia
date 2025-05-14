@@ -16,4 +16,9 @@ public class SceneButtonHandler : MonoBehaviour
             Debug.LogWarning("SceneFlowManager is not available.");
         }
     }
+
+    public void ExitApp()
+    {
+        Application.Quit();
+    }
 }

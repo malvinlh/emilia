@@ -1,10 +1,14 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using System.Collections.Generic;
 
 public class AudioManager : MonoBehaviour
 {
     public static AudioManager Instance { get; private set; }
+
+    private Dictionary<string, Transform> sceneAudioMap = new Dictionary<string, Transform>();
+    private Coroutine sfxDelayCoroutine = null;
 
     private void Awake()
     {
@@ -12,6 +16,7 @@ public class AudioManager : MonoBehaviour
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
+            BuildSceneAudioMap();
         }
         else
         {
@@ -19,7 +24,7 @@ public class AudioManager : MonoBehaviour
         }
     }
 
-  private void OnEnable()
+    private void OnEnable()
     {
         SceneManager.sceneLoaded += OnSceneLoaded;
     }
@@ -29,6 +34,15 @@ public class AudioManager : MonoBehaviour
         SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
+    private void BuildSceneAudioMap()
+    {
+        sceneAudioMap.Clear();
+        foreach (Transform child in transform)
+        {
+            sceneAudioMap[child.name] = child;
+        }
+    }
+
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         PlaySceneBGM(scene.name);
@@ -36,20 +50,26 @@ public class AudioManager : MonoBehaviour
 
     private void PlaySceneBGM(string sceneName)
     {
-        Transform sceneAudio = transform.Find(sceneName);
-        if (sceneAudio == null)
+        if (!sceneAudioMap.TryGetValue(sceneName, out var sceneAudio))
         {
-            Debug.LogWarning($"No audio setup found for scene '{sceneName}'.");
+            Debug.LogWarning($"[AudioManager] No audio setup found for scene '{sceneName}'.");
             return;
         }
 
         // Stop semua audio dulu
-        foreach (Transform child in transform)
+        foreach (var kvp in sceneAudioMap)
         {
-            foreach (var audio in child.GetComponentsInChildren<AudioSource>())
+            foreach (var audio in kvp.Value.GetComponentsInChildren<AudioSource>())
             {
                 audio.Stop();
             }
+        }
+
+        // Stop coroutine sebelumnya kalau ada
+        if (sfxDelayCoroutine != null)
+        {
+            StopCoroutine(sfxDelayCoroutine);
+            sfxDelayCoroutine = null;
         }
 
         AudioSource sfx = sceneAudio.Find("SFXSource")?.GetComponent<AudioSource>();
@@ -61,7 +81,7 @@ public class AudioManager : MonoBehaviour
 
             if (bgm != null)
             {
-                StartCoroutine(PlayBGMAfterSFX(sfx.clip.length, bgm));
+                sfxDelayCoroutine = StartCoroutine(PlayBGMAfterSFX(sfx.clip.length, bgm));
             }
         }
         else if (bgm != null)
