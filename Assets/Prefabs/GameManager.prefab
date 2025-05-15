@@ -46,4 +46,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   audioManagerPrefab: {fileID: 122489641795755424, guid: f03c60135e848b5448579a049a5c5899, type: 3}
   sceneFlowManagerPrefab: {fileID: 5935000643787353524, guid: 0fd1927cfc1a6524781afb35fa78afc0, type: 3}
-  maoManagerPrefab: {fileID: 5106493799650471744, guid: fe969d5871286ac48a0273459e1c4532, type: 3}
+  chatManagerPrefab: {fileID: 1331359196833379517, guid: 1df3a29aba6017d438b607073a969859, type: 3}
