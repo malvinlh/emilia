@@ -9,7 +9,7 @@ public class ChatBubbleController : MonoBehaviour
     public TextMeshProUGUI chatText;
 
     [Tooltip("The maximum width (in pixels) that the chat text should occupy.")]
-    public float maxTextWidth = 400f;
+    public float maxTextWidth;
 
     // Kita menyimpan referensi LayoutElement sekali di Awake
     private LayoutElement le;
