@@ -300,6 +300,8 @@ GameObject:
   m_Component:
   - component: {fileID: 6866131815646943780}
   - component: {fileID: 2152248111488557083}
+  - component: {fileID: 1844104873490494042}
+  - component: {fileID: 2302041899275625180}
   m_Layer: 5
   m_Name: ChatBubbleAI
   m_TagString: Untagged
@@ -326,7 +328,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 1066, y: 150}
+  m_SizeDelta: {x: 1066, y: 0}
   m_Pivot: {x: 0, y: 1}
 --- !u!114 &2152248111488557083
 MonoBehaviour:
@@ -341,6 +343,41 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   chatText: {fileID: 9124913128306434528}
+  bubbleRect: {fileID: 2999978517790701161}
+--- !u!114 &1844104873490494042
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4200714248458686930}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3245ec927659c4140ac4f8d17403cc18, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_HorizontalFit: 0
+  m_VerticalFit: 2
+--- !u!114 &2302041899275625180
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4200714248458686930}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 306cc8c2b49d7114eaa3623786fc2126, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_IgnoreLayout: 0
+  m_MinWidth: -1
+  m_MinHeight: -1
+  m_PreferredWidth: -1
+  m_PreferredHeight: -1
+  m_FlexibleWidth: -1
+  m_FlexibleHeight: 1
+  m_LayoutPriority: 1
 --- !u!1 &7633836480357456632
 GameObject:
   m_ObjectHideFlags: 0
