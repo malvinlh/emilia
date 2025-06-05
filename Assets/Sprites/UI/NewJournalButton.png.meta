@@ -185,7 +185,9 @@ TextureImporter:
     secondaryTextures: []
     spriteCustomMetadata:
       entries: []
-    nameFileIdTable: {}
+    nameFileIdTable:
+      NewJournalButton_0: -1797712724078434339
+      NewJournalButton_1: 9113028017020933240
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

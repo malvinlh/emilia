@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 735f0e418abeaa648a1541c1e7372b03
+guid: e7f8d723ecec1b741a882a6c3d7e5f3c
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 7005663469472161560
-    second: Dialogue-Emilia-1 (1)_0
+      213: 4467266491405948028
+    second: DialogueBoxUser_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -126,7 +126,7 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: Dialogue-Emilia-1 (1)_0
+      name: DialogueBoxUser_0
       rect:
         serializedVersion: 2
         x: 0
@@ -134,15 +134,15 @@ TextureImporter:
         width: 470
         height: 66
       alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 33, y: 23, z: 34, w: 24}
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 34, y: 24, z: 33, w: 23}
       customData: 
       outline: []
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 81f91d1decd193160800000000000000
-      internalID: 7005663469472161560
+      spriteID: c74d141943beefd30800000000000000
+      internalID: 4467266491405948028
       vertices: []
       indices: 
       edges: []
@@ -151,7 +151,7 @@ TextureImporter:
     customData: 
     physicsShape: []
     bones: []
-    spriteID: 91081dd0e6bd7984cb18f2fd332cbfbb
+    spriteID: d00cd0b686ea8594ea41fde1c5631aae
     internalID: 0
     vertices: []
     indices: 
@@ -161,7 +161,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      Dialogue-Emilia-1 (1)_0: 7005663469472161560
+      DialogueBoxUser_0: 4467266491405948028
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

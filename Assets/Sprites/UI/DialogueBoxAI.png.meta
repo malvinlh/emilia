@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: cf903eb4627b38f4c97acdea19766079
+guid: 735f0e418abeaa648a1541c1e7372b03
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 2401906417729796469
-    second: Desktop - Settings Change Nickname - Base1_0
+      213: 7005663469472161560
+    second: Dialogue-Emilia-1 (1)_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -37,7 +37,7 @@ TextureImporter:
   maxTextureSize: 2048
   textureSettings:
     serializedVersion: 2
-    filterMode: 1
+    filterMode: 0
     aniso: 1
     mipBias: 0
     wrapU: 1
@@ -48,7 +48,7 @@ TextureImporter:
   compressionQuality: 50
   spriteMode: 2
   spriteExtrude: 1
-  spriteMeshType: 1
+  spriteMeshType: 0
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
   spritePixelsToUnits: 100
@@ -75,7 +75,7 @@ TextureImporter:
     maxTextureSize: 2048
     resizeAlgorithm: 0
     textureFormat: -1
-    textureCompression: 1
+    textureCompression: 0
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
@@ -126,23 +126,23 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: Desktop - Settings Change Nickname - Base1_0
+      name: DialogueBoxAI
       rect:
         serializedVersion: 2
         x: 0
         y: 0
-        width: 1920
-        height: 1080
+        width: 470
+        height: 66
       alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 33, y: 23, z: 34, w: 24}
       customData: 
       outline: []
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 579f38c3929455120800000000000000
-      internalID: 2401906417729796469
+      spriteID: 81f91d1decd193160800000000000000
+      internalID: 7005663469472161560
       vertices: []
       indices: 
       edges: []
@@ -151,7 +151,7 @@ TextureImporter:
     customData: 
     physicsShape: []
     bones: []
-    spriteID: 
+    spriteID: 91081dd0e6bd7984cb18f2fd332cbfbb
     internalID: 0
     vertices: []
     indices: 
@@ -161,7 +161,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      Desktop - Settings Change Nickname - Base1_0: 2401906417729796469
+      DialogueBoxAI: 7005663469472161560
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

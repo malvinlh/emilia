@@ -132,7 +132,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   chatText: {fileID: 8649697028271136877}
-  maxTextWidth: 1060
+  maxTextWidth: 960
 --- !u!1 &6487726902804528553
 GameObject:
   m_ObjectHideFlags: 0
