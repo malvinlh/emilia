@@ -1804,6 +1804,8 @@ MonoBehaviour:
   nicknameInput: {fileID: 917025654}
   continueButton: {fileID: 706479133}
   errorText: {fileID: 1010707680}
+  userService: {fileID: 0}
+  chatManager: {fileID: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

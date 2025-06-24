@@ -810,51 +810,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
---- !u!1 &1975813935
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1975813937}
-  - component: {fileID: 1975813936}
-  m_Layer: 0
-  m_Name: tes
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 0
---- !u!114 &1975813936
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1975813935}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 31c114b1c294cfe48b1083e625afcba5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
---- !u!4 &1975813937
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1975813935}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 912.40106, y: 579.7039, z: -2.2064955}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  targetSceneKey: Login
 --- !u!1001 &2712416862955840696
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -920,4 +876,3 @@ SceneRoots:
   - {fileID: 1171139284}
   - {fileID: 491655316}
   - {fileID: 2712416862955840696}
-  - {fileID: 1975813937}

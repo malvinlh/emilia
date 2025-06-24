@@ -6,7 +6,7 @@ public class GameManager : MonoBehaviour
 
     public GameObject audioManagerPrefab;
     public GameObject sceneFlowManagerPrefab;
-    // public GameObject maoManagerPrefab;
+    public GameObject serviceManagerPrefab;
 
     private void Awake()
     {
@@ -30,7 +30,7 @@ public class GameManager : MonoBehaviour
         if (SceneFlowManager.Instance == null)
             Instantiate(sceneFlowManagerPrefab);
 
-        // if (MaoManager.Instance == null)
-        //     Instantiate(maoManagerPrefab);
+        if (ServiceManager.Instance == null)
+            Instantiate(serviceManagerPrefab);
     }
 }

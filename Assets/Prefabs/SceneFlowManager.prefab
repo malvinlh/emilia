@@ -47,6 +47,8 @@ MonoBehaviour:
   scenes:
   - sceneKey: StartMenu
     sceneName: StartMenu
+  - sceneKey: Login
+    sceneName: Login
   - sceneKey: MainMenu
     sceneName: MainMenu
   - sceneKey: Chat
