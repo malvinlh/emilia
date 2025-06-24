@@ -56133,6 +56133,8 @@ MonoBehaviour:
   chatContentParent: {fileID: 661699351}
   chatHistoryParent: {fileID: 544570707}
   inputField: {fileID: 8594300957459492071}
+  newChatButton: {fileID: 780097626}
+  sendButton: {fileID: 1874907579}
   CurrentUserId: Alice
 --- !u!43 &2030863075
 Mesh:

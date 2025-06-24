@@ -1,3 +1,4 @@
+// ChatService.cs
 using UnityEngine;
 using System;
 using System.Collections;
@@ -50,8 +51,30 @@ public class InsertRequest
     public string sent_at;
 }
 
+[Serializable]
+public class ConversationUpsert
+{
+    public string id;
+    public string user_id;
+    public string started_at;
+}
+
+// — THESE TWO WERE MISSING —
+[Serializable]
+public class FirstMessageWrapper
+{
+    public string message;
+}
+
+[Serializable]
+public class FirstMessageListWrapper
+{
+    public FirstMessageWrapper[] items;
+}
+
 /// <summary>
-/// Turunan dari SupabaseHttpClient yang punya SendRequest().
+/// Inherits SupabaseHttpClient (with SendRequest).
+/// Contains all conversation + message endpoints.
 /// </summary>
 public class ChatService : SupabaseHttpClient
 {
@@ -59,8 +82,7 @@ public class ChatService : SupabaseHttpClient
     const string MsgTable  = "messages";
 
     /// <summary>
-    /// 1) GET semua ID percakapan milik user (cv01, cv02, …)
-    /// 2) onSuccess diberikan array string[] convIds
+    /// GET all conversation IDs for this user.
     /// </summary>
     public IEnumerator FetchConversations(
         string userId,
@@ -71,20 +93,16 @@ public class ChatService : SupabaseHttpClient
         string path = $"{ConvTable}?select=id&user_id=eq.{userId}";
         yield return StartCoroutine(
             SendRequest(
-                path:      path,
-                method:    "GET",
-                bodyJson:  null,
-                onSuccess: resp =>
+                path, "GET", null,
+                resp =>
                 {
-                    // bungkus JSON array menjadi objek untuk JsonUtility
                     var wrapped = $"{{\"items\":{resp}}}";
                     var list    = JsonUtility.FromJson<ConversationIdListWrapper>(wrapped);
-
                     if (list.items != null)
                     {
-                        string[] ids = new string[list.items.Length];
-                        for (int i = 0; i < ids.Length; i++)
-                            ids[i] = list.items[i].id;   // pasti "cv01", "cv02", …
+                        var ids = new string[list.items.Length];
+                        for (int i = 0; i < list.items.Length; i++)
+                            ids[i] = list.items[i].id;
                         onSuccess(ids);
                     }
                     else
@@ -92,13 +110,42 @@ public class ChatService : SupabaseHttpClient
                         onSuccess(Array.Empty<string>());
                     }
                 },
-                onError: err => onError?.Invoke(err)
+                err => onError?.Invoke(err)
             )
         );
     }
 
     /// <summary>
-    /// GET satu percakapan beserta semua pesannya
+    /// GET the first (oldest) message for a conversation—used for snippet.
+    /// </summary>
+    public IEnumerator FetchFirstMessage(
+        string conversationId,
+        Action<string> onResult,
+        Action<string> onError = null
+    )
+    {
+        string path =
+            $"{MsgTable}?select=message&conversation_id=eq.{conversationId}" +
+            $"&order=sent_at.asc&limit=1";
+        yield return StartCoroutine(
+            SendRequest(
+                path, "GET", null,
+                resp =>
+                {
+                    var wrapped = $"{{\"items\":{resp}}}";
+                    var list    = JsonUtility.FromJson<FirstMessageListWrapper>(wrapped);
+                    if (list.items != null && list.items.Length > 0)
+                        onResult(list.items[0].message);
+                    else
+                        onResult(string.Empty);
+                },
+                err => onError?.Invoke(err)
+            )
+        );
+    }
+
+    /// <summary>
+    /// GET one conversation + all its messages.
     /// </summary>
     public IEnumerator FetchConversationWithMessages(
         string conversationId,
@@ -107,14 +154,13 @@ public class ChatService : SupabaseHttpClient
         Action<string> onError = null
     )
     {
-        string select = $"{ConvTable}?select=*,messages(*)" +
-                        $"&id=eq.{conversationId}&user_id=eq.{userId}";
+        string select =
+            $"{ConvTable}?select=*,messages(*)" +
+            $"&id=eq.{conversationId}&user_id=eq.{userId}";
         yield return StartCoroutine(
             SendRequest(
-                path:      select,
-                method:    "GET",
-                bodyJson:  null,
-                onSuccess: resp =>
+                select, "GET", null,
+                resp =>
                 {
                     var wrapped = $"{{\"items\":{resp}}}";
                     var w       = JsonUtility.FromJson<ConversationListWrapper>(wrapped);
@@ -123,13 +169,46 @@ public class ChatService : SupabaseHttpClient
                     else
                         onResult(Array.Empty<Message>());
                 },
-                onError: err => onError?.Invoke(err)
+                err => onError?.Invoke(err)
             )
         );
     }
 
     /// <summary>
-    /// INSERT satu pesan
+    /// Upsert conversation before inserting messages.
+    /// </summary>
+    public IEnumerator UpsertConversation(
+        string conversationId,
+        string userId,
+        Action onSuccess,
+        Action<string> onError
+    )
+    {
+        Debug.Log($"[ChatService] UpsertConversation: id = '{conversationId}', userId = '{userId}'");
+
+        var payload = new ConversationUpsert
+        {
+            id         = conversationId,
+            user_id    = userId,
+            started_at = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss")
+        };
+        string json = "[" + JsonUtility.ToJson(payload) + "]";
+
+        string path = $"{ConvTable}?on_conflict=id";
+        yield return StartCoroutine(
+            SendRequest(
+                path:         path,
+                method:       "POST",
+                bodyJson:     json,
+                onSuccess:    _ => onSuccess?.Invoke(),
+                onError:      err => onError?.Invoke(err),
+                preferHeader: "resolution=merge-duplicates"
+            )
+        );
+    }
+
+    /// <summary>
+    /// INSERT a new message.
     /// </summary>
     public IEnumerator InsertMessage(
         string conversationId,
@@ -145,14 +224,17 @@ public class ChatService : SupabaseHttpClient
             yield break;
         }
 
-        var reqObj = new InsertRequest {
+        Debug.Log($"[ChatService] InsertMessage: conversationId = '{conversationId}', sender = '{sender}', content = '{content}'");
+
+        var req = new InsertRequest
+        {
             id              = Guid.NewGuid().ToString(),
             conversation_id = conversationId,
             sender          = sender,
             message         = content,
             sent_at         = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss")
         };
-        string json = "[" + JsonUtility.ToJson(reqObj) + "]";
+        string json = "[" + JsonUtility.ToJson(req) + "]";
 
         yield return StartCoroutine(
             SendRequest(

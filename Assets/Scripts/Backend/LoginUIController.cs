@@ -45,7 +45,8 @@ public class LoginUIController : MonoBehaviour
                     // save locally and move to Chat scene
                     PlayerPrefs.SetString("Nickname", nickname);
                     PlayerPrefs.Save();
-                    SceneManager.LoadScene("Chat");
+                    Debug.Log($"[Login] Saved Nickname: {PlayerPrefs.GetString("Nickname")}");
+                    SceneManager.LoadScene("MainMenu");
                 },
                 onError: err => {
                     if (errorText != null)
