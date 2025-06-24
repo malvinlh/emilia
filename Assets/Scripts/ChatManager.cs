@@ -4,42 +4,116 @@ using System.Collections;
 
 public class ChatManager : MonoBehaviour
 {
+    [Header("Prefabs")]
     public GameObject userBubblePrefab;
     public GameObject aiBubblePrefab;
-    public Transform chatContentParent; // Content under ScrollView
+
+    [Header("UI References")]
+    public Transform chatContentParent;
     public TMP_InputField inputField;
 
+    [Header("Services")]
+    public SupabaseClient supabaseClient;
+
+    // <-- tambahkan ini:
+    private string currentConversationId;
+
+    public string CurrentUserId = "Alice";
     private bool isAwaitingResponse = false;
+
+    public void OnHistoryClicked(string conversationId)
+    {
+        // simpan convo id yang aktif
+        currentConversationId = conversationId;
+        ClearChat();
+        StartCoroutine(supabaseClient.FetchConversationWithMessages(conversationId, CurrentUserId));
+    }
 
     public void OnSendClicked()
     {
-        string userInput = inputField.text.Trim();
-        if (string.IsNullOrEmpty(userInput) || isAwaitingResponse) return;
+        // 1) Ambil teks dari input field
+        string text = inputField.text.Trim();
+        if (string.IsNullOrEmpty(text) || isAwaitingResponse || string.IsNullOrEmpty(currentConversationId))
+            return;
 
+        // 2) Kosongkan input field **setelah** ambil teks
         inputField.text = "";
-        CreateBubble(userInput, isUser: true);
 
-        // Start AI turn
-        StartCoroutine(HandleAITurn(userInput));
+        // 3) Render bubble di UI
+        CreateBubble(text, true);
+
+        // 4) Insert ke Supabase pakai variabel 'text'
+        StartCoroutine(supabaseClient.InsertMessage(
+            currentConversationId,
+            CurrentUserId,
+            text,
+            onSuccess: () => {
+                StartCoroutine(HandleAITurn(text));
+            },
+            onError: err => {
+                Debug.LogError("Gagal insert chat: " + err);
+            }
+        ));
     }
 
-    private void CreateBubble(string message, bool isUser)
+    public void CreateBubble(string message, bool isUser)
     {
-        GameObject prefab = isUser ? userBubblePrefab : aiBubblePrefab;
-        GameObject bubbleGO = Instantiate(prefab, chatContentParent);
+        var prefab = isUser ? userBubblePrefab : aiBubblePrefab;
+        var go = Instantiate(prefab, chatContentParent);
+        go.GetComponent<ChatBubbleController>()?.SetText(message);
+    }
 
-        ChatBubbleController controller = bubbleGO.GetComponent<ChatBubbleController>();
-        controller.SetText(message); // Only sets text visually
+    public void ClearChat()
+    {
+        foreach (Transform t in chatContentParent)
+            Destroy(t.gameObject);
     }
 
     private IEnumerator HandleAITurn(string userMessage)
     {
         isAwaitingResponse = true;
 
+        // 1) Bubble “typing…”
+        var typingGO   = Instantiate(aiBubblePrefab, chatContentParent);
+        var typingCtrl = typingGO.GetComponent<ChatBubbleController>();
+        var anim = StartCoroutine(AnimateTyping(typingCtrl));
+
+        // 2) Kirim prompt ke Ollama
         yield return OllamaService.SendPrompt(userMessage, response =>
         {
-            CreateBubble(response, isUser: false);
+            // 3) Stop animasi & remove bubble typing
+            StopCoroutine(anim);
+            Destroy(typingGO);
+
+            // 4) Tampilkan bubble AI
+            CreateBubble(response, false);
+
+            // 5) Insert AI message ke Supabase
+            StartCoroutine(supabaseClient.InsertMessage(
+                currentConversationId,     // id convo yang sedang aktif
+                "Bot",                      // atau nama sender yang kamu inginkan
+                response,
+                onSuccess: () => {
+                    Debug.Log("✅ AI message saved");
+                },
+                onError: err => {
+                    Debug.LogError("Gagal simpan AI message: " + err);
+                }
+            ));
+
             isAwaitingResponse = false;
         });
+    }
+
+    private IEnumerator AnimateTyping(ChatBubbleController ctrl)
+    {
+        var dots = new[] { "", ".", ". .", ". . ." };
+        int i = 0;
+        while (true)
+        {
+            ctrl.SetText(dots[i]);
+            i = (i + 1) % dots.Length;
+            yield return new WaitForSeconds(0.5f);
+        }
     }
 }

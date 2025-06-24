@@ -60,9 +60,5 @@ public class ChatBubbleController : MonoBehaviour
 
         // 5) Set LayoutElement.ke—sehingga sistem layout Unity men‐resize bubble
         le.preferredWidth = lebarAkhir;
-
-        // (Optional) jika Anda ingin tinggi bubble mengikuti teks juga, 
-        // bisa tambahkan: le.preferredHeight = chatText.GetPreferredValues(text).y;
-        // Tapi seringkali ContentSizeFitter di atas TMP sudah cukup mengatur tinggi.
     }
 }
