@@ -50,7 +50,6 @@ public class SceneFlowManager : MonoBehaviour
     private void UpdateCurrentSceneKey()
     {
         string activeSceneName = SceneManager.GetActiveScene().name;
-
         foreach (var info in scenes)
         {
             if (info.sceneName == activeSceneName)
@@ -61,20 +60,32 @@ public class SceneFlowManager : MonoBehaviour
         }
     }
 
-    public void LoadSceneByKey(string key)
+    /// <summary>
+    /// Load by key with custom fade-out duration (in seconds).
+    /// Pass a negative value to use the default fadeDuration.
+    /// </summary>
+    public void LoadSceneByKey(string key, float fadeDurationOverride)
     {
         SceneInfo target = scenes.Find(s => s.sceneKey == key);
         if (target != null)
-            StartCoroutine(TransitionScene(target));
+            StartCoroutine(TransitionScene(target, fadeDurationOverride));
         else
             Debug.LogError("Scene key not found: " + key);
+    }
+
+    /// <summary>
+    /// Load by key using default fadeDuration.
+    /// </summary>
+    public void LoadSceneByKey(string key)
+    {
+        LoadSceneByKey(key, -1f);
     }
 
     public void LoadNextScene()
     {
         int currentIndex = scenes.FindIndex(s => s.sceneKey == currentSceneKey);
         if (currentIndex >= 0 && currentIndex + 1 < scenes.Count)
-            StartCoroutine(TransitionScene(scenes[currentIndex + 1]));
+            LoadSceneByKey(scenes[currentIndex + 1].sceneKey);
         else
             Debug.LogWarning("No next scene found.");
     }
@@ -83,20 +94,23 @@ public class SceneFlowManager : MonoBehaviour
     {
         int currentIndex = scenes.FindIndex(s => s.sceneKey == currentSceneKey);
         if (currentIndex > 0)
-            StartCoroutine(TransitionScene(scenes[currentIndex - 1]));
+            LoadSceneByKey(scenes[currentIndex - 1].sceneKey);
         else
             Debug.LogWarning("No previous scene found.");
     }
 
+    /// <summary>
+    /// Hook for UI Buttons (from Inspector).
+    /// </summary>
     public void LoadSceneByKeyFromButton(string key)
     {
         LoadSceneByKey(key);
     }
 
-    private IEnumerator TransitionScene(SceneInfo target)
+    private IEnumerator TransitionScene(SceneInfo target, float customFadeDuration)
     {
         if (FadeManager.Instance != null)
-            yield return FadeManager.Instance.FadeOut();
+            yield return FadeManager.Instance.FadeOut(customFadeDuration);
 
         yield return SceneManager.LoadSceneAsync(target.sceneName);
 

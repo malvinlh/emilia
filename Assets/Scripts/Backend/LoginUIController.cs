@@ -10,7 +10,8 @@ public class LoginUIController : MonoBehaviour
     public TMP_InputField fullNameInput;
     public TMP_InputField nicknameInput;
     public Button continueButton;
-    public TextMeshProUGUI errorText;  // assign di Inspector
+    public TextMeshProUGUI errorText;
+    public SceneButtonHandler sceneButtonHandler;
 
     void Start()
     {
@@ -41,8 +42,6 @@ public class LoginUIController : MonoBehaviour
             return;
         }
 
-        // kalau perlu, cek juga panjang/match pola dsb di sini…
-
         // baru panggil service
         StartCoroutine(
             ServiceManager.Instance.UserService.UpsertUser(
@@ -52,7 +51,7 @@ public class LoginUIController : MonoBehaviour
                     PlayerPrefs.SetString("Nickname", nickname);
                     PlayerPrefs.Save();
                     Debug.Log($"[Login] Saved Nickname: {PlayerPrefs.GetString("Nickname")}");
-                    SceneManager.LoadScene("MainMenu");
+                    sceneButtonHandler.LoadTargetScene();
                 },
                 onError: err => {
                     if (errorText != null)

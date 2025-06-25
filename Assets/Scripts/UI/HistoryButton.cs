@@ -16,7 +16,7 @@ public class HistoryButton : MonoBehaviour
     private void Awake()
     {
         // 1) Get ChatManager instance
-        chatManager = FindObjectOfType<ChatManager>();
+        chatManager = FindFirstObjectByType<ChatManager>();
 
         // 2) Hook click listener
         GetComponent<Button>().onClick.AddListener(OnClicked);

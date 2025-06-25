@@ -95,4 +95,18 @@ public class AudioManager : MonoBehaviour
         yield return new WaitForSeconds(delay);
         bgm.Play();
     }
+
+    public AudioSource PlaySFX(AudioClip clip, float volume = 1f)
+    {
+        if (clip == null) return null;
+
+        GameObject sfxGO = new GameObject("SFX_" + clip.name);
+        AudioSource sfxSource = sfxGO.AddComponent<AudioSource>();
+        sfxSource.clip = clip;
+        sfxSource.volume = volume;
+        sfxSource.Play();
+
+        Destroy(sfxGO, clip.length); // Hapus setelah selesai
+        return sfxSource;
+    }
 }
