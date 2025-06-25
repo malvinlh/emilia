@@ -10,18 +10,39 @@ public class AudioManager : MonoBehaviour
     private Dictionary<string, Transform> sceneAudioMap = new Dictionary<string, Transform>();
     private Coroutine sfxDelayCoroutine = null;
 
-    private void Awake()
+    AudioSource[] sources;
+    const string PREF_KEY = "MasterVolume";
+
+    void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
+            // ambil semua AudioSource di children
+            sources = GetComponentsInChildren<AudioSource>(true);
+            // restore volume terakhir
+            float v = PlayerPrefs.GetFloat(PREF_KEY, 1f);
+            SetMasterVolume(v);
             BuildSceneAudioMap();
         }
         else
         {
             Destroy(gameObject);
         }
+    }
+
+    /// <summary>
+    /// Set volume semua AudioSource
+    /// </summary>
+    public void SetMasterVolume(float volume)
+    {
+        foreach (var src in sources)
+            src.volume = volume;
+
+        // simpan untuk next time
+        PlayerPrefs.SetFloat(PREF_KEY, volume);
+        PlayerPrefs.Save();
     }
 
     private void OnEnable()

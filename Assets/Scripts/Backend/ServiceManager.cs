@@ -6,6 +6,7 @@ public class ServiceManager : MonoBehaviour
 
     [HideInInspector] public UserService UserService;
     [HideInInspector] public ChatService ChatService;
+    [HideInInspector] public JournalService JournalService;
 
     void Awake()
     {
@@ -14,9 +15,9 @@ public class ServiceManager : MonoBehaviour
             Instance = this;
             DontDestroyOnLoad(gameObject);
 
-            // Pastikan komponen ada
             UserService = gameObject.AddComponent<UserService>();
             ChatService = gameObject.AddComponent<ChatService>();
+            JournalService = gameObject.AddComponent<JournalService>();
         }
         else
         {

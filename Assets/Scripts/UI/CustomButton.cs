@@ -9,17 +9,24 @@ public class CustomButton : MonoBehaviour,
     IPointerDownHandler,   IPointerUpHandler
 {
     [Header("UI References")]
-    [Tooltip("Image background untuk mengganti warna")]
+    [Tooltip("Image background untuk mengganti warna (optional)")]
     [SerializeField] private Image backgroundImage;
-
+    [Tooltip("Image tambahan, misal icon, yang juga akan di-tint (optional)")]
+    [SerializeField] private Image extraImage;
     [Tooltip("TextMeshPro label untuk mengganti warna (optional)")]
     [SerializeField] private TextMeshProUGUI labelText;
 
     [Header("Background Colors")]
-    [SerializeField] private Color normalBg   = new Color(0,0,0,0);           // transparan
-    [SerializeField] private Color hoverBg    = new Color(0.6f,0.5f,0.9f,1f); // ungu
-    [SerializeField] private Color pressedBg  = new Color(0.5f,0.4f,0.8f,1f); // ungu gelap
-    [SerializeField] private Color disabledBg = new Color(0,0,0,0.2f);       // semi‐transparan
+    [SerializeField] private Color normalBg   = new Color(0,0,0,0);
+    [SerializeField] private Color hoverBg    = new Color(0.6f,0.5f,0.9f,1f);
+    [SerializeField] private Color pressedBg  = new Color(0.5f,0.4f,0.8f,1f);
+    [SerializeField] private Color disabledBg = new Color(0,0,0,0.2f);
+
+    [Header("Extra Image Colors")]
+    [SerializeField] private Color normalExtra   = Color.white;
+    [SerializeField] private Color hoverExtra    = Color.white;
+    [SerializeField] private Color pressedExtra  = Color.white;
+    [SerializeField] private Color disabledExtra = Color.gray;
 
     [Header("Text Colors")]
     [SerializeField] private Color normalText   = Color.black;
@@ -31,21 +38,21 @@ public class CustomButton : MonoBehaviour,
 
     private void Reset()
     {
-        // Auto‐assign kalau lupa drag di Inspector
         backgroundImage = GetComponent<Image>();
-        labelText = GetComponentInChildren<TextMeshProUGUI>();
+        labelText       = GetComponentInChildren<TextMeshProUGUI>();
+        // extraImage biarkan kosong kalau tidak ada
     }
 
     private void Awake()
     {
         _button = GetComponent<Button>();
+
         if (backgroundImage == null)
             backgroundImage = GetComponent<Image>();
-        // hanya cari label kalau ada child TMP
         if (labelText == null)
             labelText = GetComponentInChildren<TextMeshProUGUI>(includeInactive: true);
-        
-        // inisialisasi ke state awal
+        // extraImage tetap optional
+
         ApplyState(_button.interactable ? State.Normal : State.Disabled);
     }
 
@@ -82,15 +89,31 @@ public class CustomButton : MonoBehaviour,
 
     private void ApplyState(State s)
     {
-        // ubah background
-        switch (s)
+        // 1) Tint backgroundImage
+        if (backgroundImage != null)
         {
-            case State.Normal:   backgroundImage.color = normalBg;   break;
-            case State.Hover:    backgroundImage.color = hoverBg;    break;
-            case State.Pressed:  backgroundImage.color = pressedBg;  break;
-            case State.Disabled: backgroundImage.color = disabledBg; break;
+            switch (s)
+            {
+                case State.Normal:   backgroundImage.color = normalBg;   break;
+                case State.Hover:    backgroundImage.color = hoverBg;    break;
+                case State.Pressed:  backgroundImage.color = pressedBg;  break;
+                case State.Disabled: backgroundImage.color = disabledBg; break;
+            }
         }
-        // ubah teks hanya jika ada labelText
+
+        // 2) Tint extraImage dengan warna khusus extra
+        if (extraImage != null)
+        {
+            switch (s)
+            {
+                case State.Normal:   extraImage.color = normalExtra;   break;
+                case State.Hover:    extraImage.color = hoverExtra;    break;
+                case State.Pressed:  extraImage.color = pressedExtra;  break;
+                case State.Disabled: extraImage.color = disabledExtra; break;
+            }
+        }
+
+        // 3) Tint labelText
         if (labelText != null)
         {
             switch (s)
