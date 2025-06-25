@@ -2,43 +2,56 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System;
+using System.Linq;
 using System.Collections;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 public class ChatManager : MonoBehaviour
 {
-    const int SNIPPET_MAX_LENGTH = 20;  // panjang maksimal sebelum "..."
-
-    [Header("Prefabs & UI")]
-    public GameObject userBubblePrefab;
-    public GameObject aiBubblePrefab;
-    public GameObject historyButtonPrefab;
-    public Transform chatContentParent;
-    public Transform chatHistoryParent;
+    [Header("Prefabs & UI References")]
+    public GameObject     userBubblePrefab;
+    public GameObject     aiBubblePrefab;
+    public GameObject     historyButtonPrefab;
+    public Transform      chatContentParent;
+    public Transform      chatHistoryParent;
     public TMP_InputField inputField;
-    public Button newChatButton;
-    public Button sendButton;
+    public Button         newChatButton;
+    public Button         sendButton;
 
     [HideInInspector]
-    public string CurrentUserId;
+    public string         CurrentUserId;
 
-    private string currentConversationId;
-    private bool isAwaitingResponse = false;
-    private bool isNewConversation   = false;
+    private string        currentConversationId;
+    private bool          isAwaitingResponse = false;
+    private List<string>  userConvs = new List<string>();
 
     void Awake()
     {
         CurrentUserId = PlayerPrefs.GetString("Nickname", "");
+        Debug.Log($"[ChatManager] CurrentUserId = '{CurrentUserId}'");
     }
 
     void Start()
     {
+        // bersihkan UI dan reset
+        ClearChat();
+        currentConversationId = null;
+
+        // hook tombol
         newChatButton.onClick.AddListener(OnNewChatClicked);
         sendButton.onClick.AddListener(OnSendClicked);
 
+        // ambil semua conversations milik user ini
         StartCoroutine(
-            ServiceManager.Instance.ChatService.FetchConversations(
+            ServiceManager.Instance.ChatService.FetchUserConversations(
                 CurrentUserId,
-                PopulateHistoryButtons,
+                convIds =>
+                {
+                    PopulateHistoryButtons(convIds);
+                    userConvs = convIds.ToList();
+                },
                 err => Debug.LogError("Fetch conv IDs failed: " + err)
             )
         );
@@ -46,48 +59,43 @@ public class ChatManager : MonoBehaviour
 
     private void PopulateHistoryButtons(string[] convIds)
     {
-        // clear existing
         for (int i = chatHistoryParent.childCount - 1; i >= 0; i--)
             Destroy(chatHistoryParent.GetChild(i).gameObject);
 
-        // instantiate one button per convId
         for (int i = 0; i < convIds.Length; i++)
         {
-            string convId = convIds[i];
             var go = Instantiate(historyButtonPrefab, chatHistoryParent);
             var hb = go.GetComponent<HistoryButton>();
-            hb.SetConversationId(convId);
+            hb.SetConversationId(convIds[i]);
 
-            // fetch snippet untuk pesan pertama
+            // fetch dan set snippet
             StartCoroutine(
                 ServiceManager.Instance.ChatService.FetchFirstMessage(
-                    convId,
+                    convIds[i],
                     firstMsg =>
                     {
-                        // potong kalau terlalu panjang
-                        string snippet = string.IsNullOrEmpty(firstMsg)
+                        const int MAX = 20;
+                        string snip = string.IsNullOrEmpty(firstMsg)
                             ? $"Chat {i+1}"
-                            : (firstMsg.Length > SNIPPET_MAX_LENGTH
-                                ? firstMsg.Substring(0, SNIPPET_MAX_LENGTH) + "..."
+                            : (firstMsg.Length > MAX
+                                ? firstMsg.Substring(0, MAX) + "..."
                                 : firstMsg);
-                        hb.SetLabel(snippet);
+                        hb.SetLabel(snip);
                     },
                     err =>
                     {
-                        Debug.LogError("Fetch first msg failed: " + err);
+                        Debug.LogWarning("FetchFirstMessage failed: " + err);
                         hb.SetLabel($"Chat {i+1}");
                     }
                 )
             );
         }
-
-        isNewConversation = false;
     }
 
     public void OnHistoryClicked(string conversationId)
     {
+        Debug.Log($"[ChatManager] OnHistoryClicked('{conversationId}')");
         currentConversationId = conversationId;
-        isNewConversation     = false;
         ClearChat();
 
         StartCoroutine(
@@ -96,19 +104,19 @@ public class ChatManager : MonoBehaviour
                 CurrentUserId,
                 msgs =>
                 {
-                    foreach (var msg in msgs)
-                        CreateBubble(msg.message, msg.sender == CurrentUserId);
+                    foreach (var m in msgs)
+                        CreateBubble(m.message, m.sender == CurrentUserId);
                 },
-                err => Debug.LogError("Fetch history error: " + err)
+                err => Debug.LogError("Fetch conversation failed: " + err)
             )
         );
     }
 
     private void OnNewChatClicked()
     {
+        Debug.Log("[ChatManager] Starting new chat");
         ClearChat();
         currentConversationId = null;
-        isNewConversation     = true;
     }
 
     private void OnSendClicked()
@@ -119,39 +127,49 @@ public class ChatManager : MonoBehaviour
 
         inputField.text = "";
         CreateBubble(text, true);
+        Debug.Log($"[ChatManager] OnSendClicked text='{text}' convoId='{currentConversationId}'");
 
-        Debug.Log($"[ChatManager] OnSendClicked: conversationId = '{currentConversationId}', user = '{CurrentUserId}', message = '{text}'");
-
-        if (isNewConversation)
+        // first message of a brand-new conversation?
+        if (string.IsNullOrEmpty(currentConversationId))
         {
-            int idx = chatHistoryParent.childCount + 1;
-            currentConversationId = $"cv{idx:00}";
-            isNewConversation = false;
+            // 1) Cari angka tertinggi dari semua userConvs
+            var regex = new Regex(@"cv(\d+)$");
+            int nextIdx = userConvs
+                .Select(id =>
+                {
+                    var m = regex.Match(id);
+                    return m.Success ? int.Parse(m.Groups[1].Value) : 0;
+                })
+                .DefaultIfEmpty(0)
+                .Max() + 1;
 
-            Debug.Log($"[ChatManager] New conversation generated: '{currentConversationId}'");
+            // 2) Bangun ID unik = "{UserId}_cvNN"
+            currentConversationId = $"{CurrentUserId}_cv{nextIdx:00}";
+            userConvs.Add(currentConversationId);
 
+            // 3) Tambah tombol history baru
             var go = Instantiate(historyButtonPrefab, chatHistoryParent);
             var hb = go.GetComponent<HistoryButton>();
             hb.SetConversationId(currentConversationId);
-
-            // langsung tampilkan snippet pesan pertama yang baru saja dikirim
-            string snippet = text.Length > SNIPPET_MAX_LENGTH
-                ? text.Substring(0, SNIPPET_MAX_LENGTH) + "..."
+            const int SNIP_MAX = 20;
+            string snippet = text.Length > SNIP_MAX
+                ? text.Substring(0, SNIP_MAX) + "..."
                 : text;
             hb.SetLabel(snippet);
 
-            // upsert conversation sebelum insert message
+            // 4) Simpan conversation ke DB dulu
             StartCoroutine(
-                ServiceManager.Instance.ChatService.UpsertConversation(
+                ServiceManager.Instance.ChatService.CreateConversation(
                     currentConversationId,
                     CurrentUserId,
                     onSuccess: () => StartCoroutine(SendUserMessage(text)),
-                    onError: err => Debug.LogError("Upsert convo failed: " + err)
+                    onError: err => Debug.LogError("CreateConversation failed: " + err)
                 )
             );
         }
         else
         {
+            // sudah ada convo, langsung insert message
             StartCoroutine(SendUserMessage(text));
         }
     }
@@ -162,16 +180,16 @@ public class ChatManager : MonoBehaviour
             currentConversationId,
             CurrentUserId,
             text,
-            onSuccess: () => StartCoroutine(HandleAITurn(text)),
-            onError: err => Debug.LogError("Insert message failed: " + err)
+            onSuccess:    () => StartCoroutine(HandleAITurn(text)),
+            onError:      err => Debug.LogError("Insert message failed: " + err)
         );
     }
 
-    private void CreateBubble(string msg, bool isUser)
+    private void CreateBubble(string message, bool isUser)
     {
         var prefab = isUser ? userBubblePrefab : aiBubblePrefab;
-        var go = Instantiate(prefab, chatContentParent);
-        go.GetComponent<ChatBubbleController>()?.SetText(msg);
+        var go     = Instantiate(prefab, chatContentParent);
+        go.GetComponent<ChatBubbleController>()?.SetText(message);
     }
 
     private void ClearChat()
@@ -183,8 +201,10 @@ public class ChatManager : MonoBehaviour
     private IEnumerator HandleAITurn(string userMessage)
     {
         isAwaitingResponse = true;
-        var typingGO = Instantiate(aiBubblePrefab, chatContentParent);
-        var anim     = StartCoroutine(AnimateTyping(typingGO.GetComponent<ChatBubbleController>()));
+
+        var typingGO   = Instantiate(aiBubblePrefab, chatContentParent);
+        var typingCtrl = typingGO.GetComponent<ChatBubbleController>();
+        var anim       = StartCoroutine(AnimateTyping(typingCtrl));
 
         yield return OllamaService.SendPrompt(userMessage, response =>
         {
@@ -192,6 +212,7 @@ public class ChatManager : MonoBehaviour
             Destroy(typingGO);
             CreateBubble(response, false);
 
+            // simpan AI reply
             StartCoroutine(
                 ServiceManager.Instance.ChatService.InsertMessage(
                     currentConversationId,
@@ -201,6 +222,7 @@ public class ChatManager : MonoBehaviour
                     onError: err => Debug.LogError("Save AI message failed: " + err)
                 )
             );
+
             isAwaitingResponse = false;
         });
     }

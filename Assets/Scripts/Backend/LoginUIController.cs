@@ -1,4 +1,3 @@
-// LoginUIController.cs
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -11,24 +10,22 @@ public class LoginUIController : MonoBehaviour
     public TMP_InputField fullNameInput;
     public TMP_InputField nicknameInput;
     public Button continueButton;
-    public TextMeshProUGUI errorText;  // optional: assign a TMP text to show errors
+    public TextMeshProUGUI errorText;  // assign di Inspector
 
     void Start()
     {
-        // disable Continue until nickname is non–empty
-        continueButton.interactable = false;
-        if (errorText != null) errorText.text = "";
-
-        nicknameInput.onValueChanged.AddListener(OnNicknameChanged);
-        continueButton.onClick.AddListener(OnContinueClicked);
-    }
-
-    void OnNicknameChanged(string value)
-    {
-        bool valid = !string.IsNullOrWhiteSpace(value);
-        continueButton.interactable = valid;
-        if (valid && errorText != null)
+        // kosongkan errorText
+        if (errorText != null) 
             errorText.text = "";
+
+        // selalu allow click, tapi kita validasi di OnContinueClicked
+        continueButton.onClick.AddListener(OnContinueClicked);
+
+        // optional: clear error saat user mulai ketik
+        nicknameInput.onValueChanged.AddListener(_ => {
+            if (!string.IsNullOrWhiteSpace(nicknameInput.text) && errorText != null)
+                errorText.text = "";
+        });
     }
 
     void OnContinueClicked()
@@ -36,13 +33,22 @@ public class LoginUIController : MonoBehaviour
         string fullName = fullNameInput.text.Trim();
         string nickname = nicknameInput.text.Trim();
 
-        // call UserService via ServiceManager
+        // VALIDASI LOKAL
+        if (string.IsNullOrWhiteSpace(nickname))
+        {
+            if (errorText != null)
+                errorText.text = "⚠ Nickname wajib diisi!";
+            return;
+        }
+
+        // kalau perlu, cek juga panjang/match pola dsb di sini…
+
+        // baru panggil service
         StartCoroutine(
             ServiceManager.Instance.UserService.UpsertUser(
                 nickname,
                 fullName,
                 onSuccess: () => {
-                    // save locally and move to Chat scene
                     PlayerPrefs.SetString("Nickname", nickname);
                     PlayerPrefs.Save();
                     Debug.Log($"[Login] Saved Nickname: {PlayerPrefs.GetString("Nickname")}");
