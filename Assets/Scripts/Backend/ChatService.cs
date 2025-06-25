@@ -255,4 +255,94 @@ public class ChatService : SupabaseHttpClient
             )
         );
     }
+
+    /// <summary>
+    /// Hapus semua messages untuk array conversation IDs.
+    /// DELETE /messages?conversation_id=in.(id1,id2,…)
+    /// </summary>
+    public IEnumerator DeleteMessages(
+        string[] convIds,
+        Action onSuccess,
+        Action<string> onError = null
+    )
+    {
+        if (convIds == null || convIds.Length == 0)
+        {
+            onSuccess?.Invoke();
+            yield break;
+        }
+
+        string inClause = string.Join(",", convIds);
+        string path     = $"{MsgTable}?conversation_id=in.({Uri.EscapeDataString(inClause)})";
+        Debug.Log($"[ChatService] DeleteMessages → {path}");
+
+        yield return StartCoroutine(
+            SendRequest(
+                path:      path,
+                method:    "DELETE",
+                bodyJson:  null,
+                onSuccess: _ => onSuccess?.Invoke(),
+                onError:   err => onError?.Invoke(err)
+            )
+        );
+    }
+
+    /// <summary>
+    /// Hapus semua conversations untuk satu user.
+    /// DELETE /conversations?user_id=eq.{userId}
+    /// </summary>
+    public IEnumerator DeleteConversations(
+        string userId,
+        Action onSuccess,
+        Action<string> onError = null
+    )
+    {
+        string path = $"{ConvTable}?user_id=eq.{Uri.EscapeDataString(userId)}";
+        Debug.Log($"[ChatService] DeleteConversations → {path}");
+
+        yield return StartCoroutine(
+            SendRequest(
+                path:      path,
+                method:    "DELETE",
+                bodyJson:  null,
+                onSuccess: _ => onSuccess?.Invoke(),
+                onError:   err => onError?.Invoke(err)
+            )
+        );
+    }
+
+    /// <summary>
+    /// 1) FetchUserConversations
+    /// 2) DeleteMessages(convIds)
+    /// 3) DeleteConversations(userId)
+    /// </summary>
+    public IEnumerator DeleteAllChats(
+        string userId,
+        Action onSuccess,
+        Action<string> onError = null
+    )
+    {
+        // 1) ambil semua convIds
+        yield return StartCoroutine(FetchUserConversations(
+            userId,
+            convIds =>
+            {
+                // 2) delete semua messages
+                StartCoroutine(DeleteMessages(
+                    convIds,
+                    onSuccess: () =>
+                    {
+                        // 3) delete semua conversations
+                        StartCoroutine(DeleteConversations(
+                            userId,
+                            onSuccess: onSuccess,
+                            onError:   onError
+                        ));
+                    },
+                    onError: err => onError?.Invoke(err)
+                ));
+            },
+            err => onError?.Invoke("FetchUserConversations failed: " + err)
+        ));
+    }
 }

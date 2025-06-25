@@ -20,7 +20,8 @@ public class UserService : SupabaseHttpClient
         string fullName,
         System.Action onSuccess,
         System.Action<string> onError
-    ) {
+    ) 
+    {
         // build payload
         var payload = new UserUpsert {
             name     = nickname,
