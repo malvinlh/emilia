@@ -136,7 +136,7 @@ MonoBehaviour:
   backgroundImage: {fileID: 1629358702399533816}
   extraImage: {fileID: 0}
   labelText: {fileID: 0}
-  normalBg: {r: 0.5019608, g: 0.4, b: 0.8, a: 0.7058824}
+  normalBg: {r: 0.5019608, g: 0.4, b: 0.8, a: 0}
   hoverBg: {r: 0, g: 0, b: 0, a: 1}
   pressedBg: {r: 0, g: 0, b: 0, a: 1}
   disabledBg: {r: 0, g: 0, b: 0, a: 0.2}
@@ -434,16 +434,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   backgroundImage: {fileID: 9223049319686700293}
-  extraImage: {fileID: 0}
+  extraImage: {fileID: 1629358702399533816}
   labelText: {fileID: 4689707420578616278}
   normalBg: {r: 0, g: 0, b: 0, a: 0}
   hoverBg: {r: 0.89411765, g: 0.85490197, b: 0.9529412, a: 1}
   pressedBg: {r: 0.5, g: 0.4, b: 0.8, a: 1}
   disabledBg: {r: 0, g: 0, b: 0, a: 0.2}
-  normalExtra: {r: 1, g: 1, b: 1, a: 1}
-  hoverExtra: {r: 1, g: 1, b: 1, a: 1}
-  pressedExtra: {r: 1, g: 1, b: 1, a: 1}
-  disabledExtra: {r: 0.5, g: 0.5, b: 0.5, a: 1}
+  normalExtra: {r: 1, g: 1, b: 1, a: 0}
+  hoverExtra: {r: 0.5019608, g: 0.4, b: 0.8, a: 0.7058824}
+  pressedExtra: {r: 1, g: 1, b: 1, a: 0}
+  disabledExtra: {r: 0.5, g: 0.5, b: 0.5, a: 0}
   normalText: {r: 0.95686275, g: 0.9647059, b: 0.98039216, a: 1}
   hoverText: {r: 0, g: 0, b: 0, a: 1}
   pressedText: {r: 1, g: 1, b: 1, a: 1}
