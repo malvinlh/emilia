@@ -345,4 +345,50 @@ public class ChatService : SupabaseHttpClient
             err => onError?.Invoke("FetchUserConversations failed: " + err)
         ));
     }
+
+    /// <summary>
+    /// Hapus semua message milik conversation ini.
+    /// </summary>
+    public IEnumerator DeleteMessagesForConversation(
+        string conversationId,
+        Action onSuccess,
+        Action<string> onError = null
+    )
+    {
+        string path = $"{MsgTable}?conversation_id=eq.{Uri.EscapeDataString(conversationId)}";
+        Debug.Log($"[ChatService] DeleteMessagesForConversation → DELETE {path}");
+        yield return StartCoroutine(
+            SendRequest(
+                path:        path,
+                method:      "DELETE",
+                bodyJson:    null,
+                onSuccess:   _ => onSuccess?.Invoke(),
+                onError:     err => onError?.Invoke(err),
+                preferHeader:"return=minimal"
+            )
+        );
+    }
+
+    /// <summary>
+    /// Hapus conversation row (selesai setelah pesan di‐cascade dihapus).
+    /// </summary>
+    public IEnumerator DeleteConversation(
+        string conversationId,
+        Action onSuccess,
+        Action<string> onError = null
+    )
+    {
+        string path = $"{ConvTable}?id=eq.{Uri.EscapeDataString(conversationId)}";
+        Debug.Log($"[ChatService] DeleteConversation → DELETE {path}");
+        yield return StartCoroutine(
+            SendRequest(
+                path:        path,
+                method:      "DELETE",
+                bodyJson:    null,
+                onSuccess:   _ => onSuccess?.Invoke(),
+                onError:     err => onError?.Invoke(err),
+                preferHeader:"return=minimal"
+            )
+        );
+    }
 }

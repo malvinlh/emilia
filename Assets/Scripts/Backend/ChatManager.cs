@@ -20,6 +20,13 @@ public class ChatManager : MonoBehaviour
     public Button         newChatButton;
     public Button         sendButton;
 
+    [Header("Delete Confirmation UI")]
+    public GameObject    deleteChatSetting;   // panel konfirmasi
+    public Button        deleteYesButton;
+    public Button        deleteNoButton;
+
+    private string       pendingDeleteId;
+
     [HideInInspector]
     public string         CurrentUserId;
 
@@ -55,40 +62,59 @@ public class ChatManager : MonoBehaviour
                 err => Debug.LogError("Fetch conv IDs failed: " + err)
             )
         );
+
+        deleteChatSetting.SetActive(false);
+        deleteNoButton.onClick.AddListener(() =>
+        {
+            deleteChatSetting.SetActive(false);
+            pendingDeleteId = null;
+        });
+        deleteYesButton.onClick.AddListener(ConfirmDeleteConversation);
     }
 
     private void PopulateHistoryButtons(string[] convIds)
     {
+        // 1) Clear existing
         for (int i = chatHistoryParent.childCount - 1; i >= 0; i--)
             Destroy(chatHistoryParent.GetChild(i).gameObject);
 
+        // 2) Re‐create one button per conversation
         for (int i = 0; i < convIds.Length; i++)
         {
-            var go = Instantiate(historyButtonPrefab, chatHistoryParent);
-            var hb = go.GetComponent<HistoryButton>();
-            hb.SetConversationId(convIds[i]);
+            string convId = convIds[i];
+            var go  = Instantiate(historyButtonPrefab, chatHistoryParent);
+            var hb  = go.GetComponent<HistoryButton>();
+            hb.SetConversationId(convId);
 
-            // fetch dan set snippet
+            // sementara pakai placeholder…
+            hb.SetLabel($"Chat {i+1}");
+
+            // → lalu request snippet dari server
             StartCoroutine(
                 ServiceManager.Instance.ChatService.FetchFirstMessage(
-                    convIds[i],
+                    convId,
                     firstMsg =>
                     {
                         const int MAX = 20;
-                        string snip = string.IsNullOrEmpty(firstMsg)
+                        string snippet = string.IsNullOrEmpty(firstMsg)
                             ? $"Chat {i+1}"
                             : (firstMsg.Length > MAX
-                                ? firstMsg.Substring(0, MAX) + "..."
+                                ? firstMsg.Substring(0, MAX) + "…"
                                 : firstMsg);
-                        hb.SetLabel(snip);
+                        hb.SetLabel(snippet);
                     },
                     err =>
                     {
-                        Debug.LogWarning("FetchFirstMessage failed: " + err);
-                        hb.SetLabel($"Chat {i+1}");
+                        Debug.LogWarning($"FetchFirstMessage failed for {convId}: {err}");
+                        // biarkan label default
                     }
                 )
             );
+
+            // hookup delete button seperti sebelumnya…
+            var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
+            if (delBtn != null)
+                delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
         }
     }
 
@@ -225,6 +251,61 @@ public class ChatManager : MonoBehaviour
 
             isAwaitingResponse = false;
         });
+    }
+
+    public void OnDeleteClicked(string conversationId)
+    {
+        // simpan id, tampilkan panel
+        pendingDeleteId = conversationId;
+        deleteChatSetting.SetActive(true);
+    }
+
+    private void ConfirmDeleteConversation()
+    {
+        if (string.IsNullOrEmpty(pendingDeleteId))
+            return;
+
+        // 1) hapus messages dulu
+        StartCoroutine(
+            ServiceManager.Instance.ChatService.DeleteMessagesForConversation(
+                pendingDeleteId,
+                onSuccess: () => {
+                    // 2) lalu hapus conversation row
+                    StartCoroutine(
+                        ServiceManager.Instance.ChatService.DeleteConversation(
+                            pendingDeleteId,
+                            onSuccess: () =>
+                            {
+                                // tutup panel
+                                deleteChatSetting.SetActive(false);
+
+                                // refresh sidebar
+                                StartCoroutine(
+                                    ServiceManager.Instance.ChatService.FetchUserConversations(
+                                        CurrentUserId,
+                                        convIds => {
+                                            PopulateHistoryButtons(convIds);
+                                        },
+                                        err => Debug.LogError("Fetch conv IDs failed: " + err)
+                                    )
+                                );
+
+                                // jika view sedang menunjukkan yang di‐delete, kosongkan chat
+                                if (pendingDeleteId == currentConversationId)
+                                {
+                                    ClearChat();
+                                    currentConversationId = null;
+                                }
+
+                                pendingDeleteId = null;
+                            },
+                            onError: err => Debug.LogError("DeleteConversation failed: " + err)
+                        )
+                    );
+                },
+                onError: err => Debug.LogError("DeleteMessages failed: " + err)
+            )
+        );
     }
 
     private IEnumerator AnimateTyping(ChatBubbleController ctrl)
