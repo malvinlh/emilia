@@ -158,4 +158,28 @@ public class JournalService : SupabaseHttpClient
             )
         );
     }
+
+    /// <summary>
+    /// Hapus 1 jurnal berdasarkan ID.
+    /// DELETE /journals?id=eq.{journalId}
+    /// </summary>
+    public IEnumerator DeleteJournal(
+        string journalId,
+        Action onSuccess,
+        Action<string> onError = null
+    )
+    {
+        string path = $"{Table}?id=eq.{Uri.EscapeDataString(journalId)}";
+        Debug.Log($"[JournalService] DeleteJournal → {path}");
+        yield return StartCoroutine(
+            SendRequest(
+                path:      path,
+                method:    "DELETE",
+                bodyJson:  null,
+                onSuccess: _ => onSuccess?.Invoke(),
+                onError:   err => onError?.Invoke(err),
+                preferHeader: "return=representation"
+            )
+        );
+    }
 }

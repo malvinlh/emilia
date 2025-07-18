@@ -50,8 +50,15 @@ public class JournalManager : MonoBehaviour
     public Button          editSaveButton;
     public Button          editCancelStep2Button;
 
+    [Header("Delete Step")]
+    public GameObject deleteJournalCanvas;
+    public Button     deleteYesButton;
+    public Button     deleteNoButton;
+    public Button deleteButton;
+
     // state of the currently previewed journal
     private Journal currentJournal;
+    private Journal journalPendingDelete;
 
     void Start()
     {
@@ -125,6 +132,15 @@ public class JournalManager : MonoBehaviour
                 err => Debug.LogError("Fetch journals failed: " + err)
             )
         );
+
+        //  ─────────── hookup delete‐dialog ───────────
+        deleteJournalCanvas.SetActive(false);
+        deleteNoButton.onClick.AddListener(() =>
+        {
+            deleteJournalCanvas.SetActive(false);
+            homeCanvas.SetActive(true);
+        });
+        deleteYesButton.onClick.AddListener(ConfirmDeleteJournal);
     }
 
     private void OnJournalsReceived(Journal[] journals)
@@ -194,13 +210,20 @@ public class JournalManager : MonoBehaviour
         homeCanvas.SetActive(false);
         journalPrevCanvas.SetActive(true);
 
-        // fill preview
+        // isi preview
         journalPrevTitle.text   = j.title;
         journalPrevContent.text = j.content;
 
-        // hook Edit button
+        // hook Edit
         prevEditButton.onClick.RemoveAllListeners();
         prevEditButton.onClick.AddListener(OpenEditStep1);
+
+        // *** hook Delete tombol preview ***
+        deleteButton.onClick.RemoveAllListeners();
+        deleteButton.onClick.AddListener(() =>
+        {
+            ShowDeleteDialog(currentJournal);
+        });
     }
 
     private void OpenEditStep1()
@@ -337,6 +360,42 @@ public class JournalManager : MonoBehaviour
                     );
                 },
                 onError: err => Debug.LogError("Create journal failed: " + err)
+            )
+        );
+    }
+
+    private void ShowDeleteDialog(Journal j)
+    {
+        journalPendingDelete = j;
+        journalPrevCanvas.SetActive(false);
+        deleteJournalCanvas.SetActive(true);
+    }
+
+    public void ConfirmDeleteJournal()
+    {
+        StartCoroutine(
+            ServiceManager.Instance.JournalService.DeleteJournal(
+                journalPendingDelete.id,
+                onSuccess: () =>
+                {
+                    deleteJournalCanvas.SetActive(false);
+                    homeCanvas.SetActive(true);
+                    RefreshJournals();
+                },
+                onError: err => Debug.LogError("Delete journal failed: " + err)
+            )
+        );
+    }
+
+    private void RefreshJournals()
+    {
+        // panggil ulang fetch
+        string userId = PlayerPrefs.GetString("Nickname", "");
+        StartCoroutine(
+            ServiceManager.Instance.JournalService.FetchUserJournals(
+                userId,
+                OnJournalsReceived,
+                err => Debug.LogError("Fetch journals failed: " + err)
             )
         );
     }

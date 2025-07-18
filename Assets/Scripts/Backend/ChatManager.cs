@@ -114,7 +114,10 @@ public class ChatManager : MonoBehaviour
             // hookup delete button seperti sebelumnya…
             var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
             if (delBtn != null)
+            {
+                Debug.Log("[ChatManager] Hooking up delete button for " + convId);
                 delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
+            }
         }
     }
 
