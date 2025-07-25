@@ -8,6 +8,7 @@ public class GameManager : MonoBehaviour
     public GameObject sceneFlowManagerPrefab;
     public GameObject serviceManagerPrefab;
     public GameObject fadeManagerPrefab;
+    public GameObject dbManagerPrefab;    
 
     private void Awake()
     {
@@ -25,6 +26,9 @@ public class GameManager : MonoBehaviour
 
     private void InitializeManagers()
     {
+        if (EMILIA.Data.DatabaseManager.Instance == null)
+            Instantiate(dbManagerPrefab);
+
         if (AudioManager.Instance == null)
             Instantiate(audioManagerPrefab);
 
