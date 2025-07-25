@@ -37,19 +37,31 @@ public class ChatManager : MonoBehaviour
 
     void Awake()
     {
+        // 1) Load current user
         CurrentUserId = PlayerPrefs.GetString("Nickname", "");
         Debug.Log($"[ChatManager] CurrentUserId = '{CurrentUserId}'");
+
+        // 2) Clear the chat UI immediately
+        ClearChat();
+        currentConversationId = null;
+
+        // 3) Make sure the delete‐dialog is hidden
+        deleteChatSetting.SetActive(false);
+
+        // 4) Hook up ALL buttons right away
+        newChatButton.onClick.AddListener(OnNewChatClicked);
+        sendButton.onClick.AddListener(OnSendClicked);
+        deleteNoButton.onClick.AddListener(() =>
+        {
+            deleteChatSetting.SetActive(false);
+            pendingDeleteId = null;
+        });
+        deleteYesButton.onClick.AddListener(ConfirmDeleteConversation);
     }
 
     void Start()
     {
-        ClearChat();
-        currentConversationId = null;
-
-        newChatButton.onClick.AddListener(OnNewChatClicked);
-        sendButton.onClick.AddListener(OnSendClicked);
-
-        // Fetch all conversations for this user
+        // 5) Fetch conversation history after Awake-time hookups
         StartCoroutine(
             ServiceManager.Instance.ChatService.FetchUserConversations(
                 CurrentUserId,
@@ -61,14 +73,6 @@ public class ChatManager : MonoBehaviour
                 err => Debug.LogError("Fetch conv IDs failed: " + err)
             )
         );
-
-        deleteChatSetting.SetActive(false);
-        deleteNoButton.onClick.AddListener(() =>
-        {
-            deleteChatSetting.SetActive(false);
-            pendingDeleteId = null;
-        });
-        deleteYesButton.onClick.AddListener(ConfirmDeleteConversation);
     }
 
     private void PopulateHistoryButtons(string[] convIds)
@@ -171,6 +175,9 @@ public class ChatManager : MonoBehaviour
             // add history button
             var go = Instantiate(historyButtonPrefab, chatHistoryParent);
             var hb = go.GetComponent<HistoryButton>();
+            var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
+            if (delBtn != null)
+                delBtn.onClick.AddListener(() => OnDeleteClicked(currentConversationId));
             hb.SetConversationId(currentConversationId);
             const int SNIP_MAX = 20;
             string snippet = text.Length > SNIP_MAX
