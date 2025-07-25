@@ -5,31 +5,32 @@ using UnityEngine.EventSystems;
 using TMPro;
 using System;
 using System.Collections;
+using EMILIA.Data;  // your namespace for the Journal model
 
 public class JournalManager : MonoBehaviour
 {
     [Header("Entry List Prefab & Parent")]
-    public GameObject   journalEntryPrefab;  // Prefab Image + TitleText, ContentText, DateBG/DateText
-    public Transform    contentParent;       // Scroll View → Viewport → Content
+    public GameObject   journalEntryPrefab;
+    public Transform    contentParent;
 
     [Header("Canvases")]
-    public GameObject homeCanvas;            // Panel list jurnal
-    public GameObject journalPrevCanvas;     // Panel preview
-    public GameObject   journalCreateCanvas1;  // Panel step1 create
-    public GameObject   journalCreateCanvas2;  // Panel step2 create
-    public GameObject journalEditCanvas1;    // Step 1: edit title & dates
-    public GameObject journalEditCanvas2;    // Step 2: edit content
+    public GameObject homeCanvas;
+    public GameObject journalPrevCanvas;
+    public GameObject journalCreateCanvas1;
+    public GameObject journalCreateCanvas2;
+    public GameObject journalEditCanvas1;
+    public GameObject journalEditCanvas2;
 
     [Header("Preview UI")]
     public TextMeshProUGUI journalPrevTitle;
     public TextMeshProUGUI journalPrevContent;
     public Button          prevBackButton;
     public Button          prevEditButton;
+    public Button          deleteButton;
 
     [Header("Create Step 1 UI")]
-    public Button       newJournalButton;      // tombol “+” di HomeCanvas
-
-    public TMP_InputField  createTitleInput;
+    public Button       newJournalButton;
+    public TMP_InputField createTitleInput;
     public TextMeshProUGUI createDateText;
     public Button          createNextButton;
     public Button          createCancelStep1Button;
@@ -38,10 +39,10 @@ public class JournalManager : MonoBehaviour
     public TMP_InputField  createContentInput;
     public Button          createSaveButton;
     public Button          createCancelStep2Button;
-    
+
     [Header("Edit Step 1 UI")]
     public TMP_InputField  editTitleInput;
-    public TextMeshProUGUI editDateText;     // single field: "Created / Updated"
+    public TextMeshProUGUI editDateText;
     public Button          editNextButton;
     public Button          editCancelStep1Button;
 
@@ -54,71 +55,73 @@ public class JournalManager : MonoBehaviour
     public GameObject deleteJournalCanvas;
     public Button     deleteYesButton;
     public Button     deleteNoButton;
-    public Button deleteButton;
 
-    // state of the currently previewed journal
+    // state
     private Journal currentJournal;
     private Journal journalPendingDelete;
 
     void Start()
     {
-        // 1) Show home, hide others
+        // initial canvas setup
         homeCanvas.SetActive(true);
         journalPrevCanvas.SetActive(false);
+        journalCreateCanvas1.SetActive(false);
+        journalCreateCanvas2.SetActive(false);
         journalEditCanvas1.SetActive(false);
         journalEditCanvas2.SetActive(false);
+        deleteJournalCanvas.SetActive(false);
 
-        // 2) Hook Back on preview → home
+        // preview back
         prevBackButton.onClick.AddListener(() =>
         {
             journalPrevCanvas.SetActive(false);
             homeCanvas.SetActive(true);
         });
 
-        // 3) Hook Cancel on edit step1 → home
+        // create flow
+        newJournalButton.onClick.AddListener(() =>
+        {
+            homeCanvas.SetActive(false);
+            journalCreateCanvas1.SetActive(true);
+            var wibNow = DateTime.UtcNow.AddHours(7);
+            createDateText.text = wibNow.ToString("dd MMMM yyyy hh:mm tt");
+            createTitleInput.text = "";
+        });
+        createCancelStep1Button.onClick.AddListener(() =>
+        {
+            journalCreateCanvas1.SetActive(false);
+            homeCanvas.SetActive(true);
+        });
+        createNextButton.onClick.AddListener(OpenCreateStep2);
+        createCancelStep2Button.onClick.AddListener(() =>
+        {
+            journalCreateCanvas2.SetActive(false);
+            journalCreateCanvas1.SetActive(true);
+        });
+        createSaveButton.onClick.AddListener(SaveNewJournal);
+
+        // edit flow
         editCancelStep1Button.onClick.AddListener(() =>
         {
             journalEditCanvas1.SetActive(false);
             homeCanvas.SetActive(true);
         });
-
-        // 4) Hook Cancel on edit step2 → step1
         editCancelStep2Button.onClick.AddListener(() =>
         {
             journalEditCanvas2.SetActive(false);
             journalEditCanvas1.SetActive(true);
         });
 
-        newJournalButton.onClick.AddListener(() =>
+        // delete dialog
+        deleteNoButton.onClick.AddListener(() =>
         {
-            homeCanvas.SetActive(false);
-            journalCreateCanvas1.SetActive(true);
-
-            // isi timestamp saat panel muncul (WIB = UTC+7)
-            DateTime wibNow = DateTime.UtcNow.AddHours(7);
-            createDateText.text = wibNow.ToString("dd MMMM yyyy hh:mm tt");
-
-            // reset title field
-            createTitleInput.text = "";
-        });
-
-        createCancelStep1Button.onClick.AddListener(() =>
-        {
-            journalCreateCanvas1.SetActive(false);
+            deleteJournalCanvas.SetActive(false);
             homeCanvas.SetActive(true);
         });
+        deleteYesButton.onClick.AddListener(ConfirmDeleteJournal);
 
-        createCancelStep2Button.onClick.AddListener(() =>
-        {
-            journalCreateCanvas2.SetActive(false);
-            journalCreateCanvas1.SetActive(true);
-        });
-
-        createNextButton.onClick.AddListener(OpenCreateStep2);
-        createSaveButton.onClick.AddListener(SaveNewJournal);
-
-        // 5) Fetch journals list
-        string userId = PlayerPrefs.GetString("Nickname", "");
+        // fetch initial list
+        var userId = PlayerPrefs.GetString("Nickname", "");
         if (string.IsNullOrEmpty(userId))
         {
             Debug.LogError("[JournalManager] No nickname in PlayerPrefs!");
@@ -132,68 +135,50 @@ public class JournalManager : MonoBehaviour
                 err => Debug.LogError("Fetch journals failed: " + err)
             )
         );
-
-        //  ─────────── hookup delete‐dialog ───────────
-        deleteJournalCanvas.SetActive(false);
-        deleteNoButton.onClick.AddListener(() =>
-        {
-            deleteJournalCanvas.SetActive(false);
-            homeCanvas.SetActive(true);
-        });
-        deleteYesButton.onClick.AddListener(ConfirmDeleteJournal);
     }
 
     private void OnJournalsReceived(Journal[] journals)
     {
-        // clear old entries
+        // clear
         foreach (Transform t in contentParent)
             Destroy(t.gameObject);
 
-        for (int i = 0; i < journals.Length; i++)
+        // populate
+        foreach (var j in journals)
         {
-            var j   = journals[i];
-            var go  = Instantiate(journalEntryPrefab, contentParent);
-            go.name = $"Journal{i+1}";
+            var go = Instantiate(journalEntryPrefab, contentParent);
+            go.name = $"Journal_{j.Id}";
 
-            // 1) Title snippet
+            // title
             var titleText = go.transform.Find("TitleText")?
                                 .GetComponent<TextMeshProUGUI>();
             if (titleText != null)
             {
+                titleText.text = j.Title;
                 titleText.textWrappingMode = TextWrappingModes.NoWrap;
-                titleText.overflowMode       = TextOverflowModes.Ellipsis;
-                titleText.text               = j.title;
+                titleText.overflowMode     = TextOverflowModes.Ellipsis;
             }
 
-            // 2) Content snippet
+            // content
             var contentText = go.transform.Find("ContentText")?
                                   .GetComponent<TextMeshProUGUI>();
             if (contentText != null)
             {
+                contentText.text = j.Content;
                 contentText.textWrappingMode = TextWrappingModes.Normal;
-                contentText.overflowMode       = TextOverflowModes.Ellipsis;
-                contentText.text               = j.content;
+                contentText.overflowMode     = TextOverflowModes.Ellipsis;
             }
 
-            // 3) Date snippet: gunakan updated_at jika ada, otherwise created_at
-            var dateText = go.transform
-                            .Find("DateBG/DateText")
-                            ?.GetComponent<TextMeshProUGUI>();
+            // date (use UpdatedAt if later, else CreatedAt)
+            var dateText = go.transform.Find("DateBG/DateText")?
+                                 .GetComponent<TextMeshProUGUI>();
             if (dateText != null)
             {
-                DateTime dt;
-                if (!string.IsNullOrEmpty(j.updated_at)
-                    && DateTime.TryParse(j.updated_at, out dt))
-                {
-                    dateText.text = dt.ToString("dd MMMM yyyy");
-                }
-                else if (DateTime.TryParse(j.created_at, out dt))
-                {
-                    dateText.text = dt.ToString("dd MMMM yyyy");
-                }
+                var dt = j.UpdatedAt > j.CreatedAt ? j.UpdatedAt : j.CreatedAt;
+                dateText.text = dt.ToString("dd MMMM yyyy");
             }
 
-            // 4) Click handler (Image must have RaycastTarget=true)
+            // click handler
             var img = go.GetComponent<Image>();
             if (img != null) img.raycastTarget = true;
 
@@ -205,108 +190,78 @@ public class JournalManager : MonoBehaviour
     private void ShowPreview(Journal j)
     {
         currentJournal = j;
-
-        // switch canvases
         homeCanvas.SetActive(false);
         journalPrevCanvas.SetActive(true);
 
-        // isi preview
-        journalPrevTitle.text   = j.title;
-        journalPrevContent.text = j.content;
+        journalPrevTitle.text   = j.Title;
+        journalPrevContent.text = j.Content;
 
-        // hook Edit
         prevEditButton.onClick.RemoveAllListeners();
         prevEditButton.onClick.AddListener(OpenEditStep1);
 
-        // *** hook Delete tombol preview ***
         deleteButton.onClick.RemoveAllListeners();
-        deleteButton.onClick.AddListener(() =>
-        {
-            ShowDeleteDialog(currentJournal);
-        });
+        deleteButton.onClick.AddListener(() => ShowDeleteDialog(j));
     }
 
     private void OpenEditStep1()
     {
-        // preview → edit step1
         journalPrevCanvas.SetActive(false);
         journalEditCanvas1.SetActive(true);
 
-        // fill title
-        editTitleInput.text = currentJournal.title;
+        editTitleInput.text = currentJournal.Title;
 
-        // build combined date string
-        DateTime created = DateTime.Parse(currentJournal.created_at);
-        DateTime updated = string.IsNullOrEmpty(currentJournal.updated_at)
-                            ? created
-                            : DateTime.Parse(currentJournal.updated_at);
-
-        // display "Created / Updated"
+        var created = currentJournal.CreatedAt;
+        var updated = currentJournal.UpdatedAt > created
+                        ? currentJournal.UpdatedAt
+                        : created;
         editDateText.text = $"{created:dd MMMM yyyy hh:mm tt} / {updated:dd MMMM yyyy hh:mm tt}";
 
-        // hook Next
         editNextButton.onClick.RemoveAllListeners();
         editNextButton.onClick.AddListener(OpenEditStep2);
     }
 
     private void OpenEditStep2()
     {
-        // step1 → step2
         journalEditCanvas1.SetActive(false);
         journalEditCanvas2.SetActive(true);
 
-        // fill content input
-        editContentInput.text = currentJournal.content;
+        editContentInput.text = currentJournal.Content;
 
-        // hook Save
         editSaveButton.onClick.RemoveAllListeners();
         editSaveButton.onClick.AddListener(SaveEdits);
     }
 
     private void SaveEdits()
     {
-        string newTitle   = editTitleInput.text.Trim();
-        string newContent = editContentInput.text.Trim();
+        var newTitle   = editTitleInput.text.Trim();
+        var newContent = editContentInput.text.Trim();
 
-        bool didChange = newTitle   != currentJournal.title
-                    || newContent != currentJournal.content;
-
-        if (!didChange)
+        if (newTitle == currentJournal.Title && newContent == currentJournal.Content)
         {
             journalEditCanvas2.SetActive(false);
             homeCanvas.SetActive(true);
             return;
         }
 
-        DateTime wibNow = DateTime.UtcNow.AddHours(7);
-        string isoUpdatedAt = wibNow.ToString("yyyy-MM-ddTHH:mm:ss");
+        var wibNow = DateTime.UtcNow.AddHours(7);
+        var iso    = wibNow.ToString("yyyy-MM-ddTHH:mm:ss");
 
-        // kirim PATCH
         StartCoroutine(
             ServiceManager.Instance.JournalService.UpdateJournal(
-                currentJournal.id,
+                currentJournal.Id,
                 newTitle,
                 newContent,
-                isoUpdatedAt,
+                iso,
                 onSuccess: () =>
                 {
-                    // update model lokal
-                    currentJournal.title      = newTitle;
-                    currentJournal.content    = newContent;
-                    currentJournal.updated_at = isoUpdatedAt;
+                    // update local model
+                    currentJournal.Title     = newTitle;
+                    currentJournal.Content   = newContent;
+                    currentJournal.UpdatedAt = wibNow;
 
-                    // tutup edit canvases
                     journalEditCanvas2.SetActive(false);
                     homeCanvas.SetActive(true);
-
-                    // **refresh UI list** dengan mem‐Fetch ulang
-                    StartCoroutine(
-                        ServiceManager.Instance.JournalService.FetchUserJournals(
-                            PlayerPrefs.GetString("Nickname", ""),
-                            OnJournalsReceived,
-                            err => Debug.LogError("Fetch journals failed: " + err)
-                        )
-                    );
+                    RefreshJournals();
                 },
                 onError: err => Debug.LogError("Update journal failed: " + err)
             )
@@ -315,26 +270,23 @@ public class JournalManager : MonoBehaviour
 
     private void OpenCreateStep2()
     {
-        // pindah dari step1 → step2
         journalCreateCanvas1.SetActive(false);
         journalCreateCanvas2.SetActive(true);
-
-        // isi content input kosong
         createContentInput.text = "";
     }
 
     private void SaveNewJournal()
     {
-        string title   = createTitleInput.text.Trim();
-        string content = createContentInput.text.Trim();
+        var title   = createTitleInput.text.Trim();
+        var content = createContentInput.text.Trim();
         if (string.IsNullOrEmpty(title) || string.IsNullOrEmpty(content))
         {
             Debug.LogWarning("Title or content empty—skipping create.");
             return;
         }
 
-        DateTime wibNow = DateTime.UtcNow.AddHours(7);
-        string iso = wibNow.ToString("yyyy-MM-ddTHH:mm:ss");
+        var wibNow = DateTime.UtcNow.AddHours(7);
+        var iso    = wibNow.ToString("yyyy-MM-ddTHH:mm:ss");
 
         StartCoroutine(
             ServiceManager.Instance.JournalService.CreateJournal(
@@ -342,22 +294,11 @@ public class JournalManager : MonoBehaviour
                 title,
                 content,
                 iso,
-                onSuccess: newJournal =>
+                onSuccess: _ =>
                 {
-                    // kembali ke home
                     journalCreateCanvas2.SetActive(false);
                     homeCanvas.SetActive(true);
-
-                    // optionally tambahkan langsung ke list tanpa reload penuh:
-                    // Instantiate satu entry baru diakhir contentParent
-                    // Anda bisa panggil OnJournalsReceived sekali lagi jika ingin reload semua.
-                    StartCoroutine(
-                        ServiceManager.Instance.JournalService.FetchUserJournals(
-                            PlayerPrefs.GetString("Nickname", ""),
-                            OnJournalsReceived,
-                            err => Debug.LogError("Re-fetch after create failed: " + err)
-                        )
-                    );
+                    RefreshJournals();
                 },
                 onError: err => Debug.LogError("Create journal failed: " + err)
             )
@@ -375,7 +316,7 @@ public class JournalManager : MonoBehaviour
     {
         StartCoroutine(
             ServiceManager.Instance.JournalService.DeleteJournal(
-                journalPendingDelete.id,
+                journalPendingDelete.Id,
                 onSuccess: () =>
                 {
                     deleteJournalCanvas.SetActive(false);
@@ -389,11 +330,9 @@ public class JournalManager : MonoBehaviour
 
     private void RefreshJournals()
     {
-        // panggil ulang fetch
-        string userId = PlayerPrefs.GetString("Nickname", "");
         StartCoroutine(
             ServiceManager.Instance.JournalService.FetchUserJournals(
-                userId,
+                PlayerPrefs.GetString("Nickname", ""),
                 OnJournalsReceived,
                 err => Debug.LogError("Fetch journals failed: " + err)
             )
@@ -401,11 +340,11 @@ public class JournalManager : MonoBehaviour
     }
 }
 
-// helper untuk click tanpa Button
+// helper for entry clicks
 public class JournalEntry : MonoBehaviour, IPointerClickHandler
 {
-    private Journal                data;
-    private Action<Journal>        callback;
+    private Journal         data;
+    private Action<Journal> callback;
 
     public void Setup(Journal j, Action<Journal> onClick)
     {
@@ -413,7 +352,7 @@ public class JournalEntry : MonoBehaviour, IPointerClickHandler
         callback = onClick;
     }
 
-    public void OnPointerClick(PointerEventData evt)
+    public void OnPointerClick(PointerEventData eventData)
     {
         callback?.Invoke(data);
     }

@@ -48,3 +48,4 @@ MonoBehaviour:
   sceneFlowManagerPrefab: {fileID: 5935000643787353524, guid: 0fd1927cfc1a6524781afb35fa78afc0, type: 3}
   serviceManagerPrefab: {fileID: 8420346773901597262, guid: 7db32b3ccb1cd72479790199ca224efa, type: 3}
   fadeManagerPrefab: {fileID: 1792084562896156872, guid: 499eceb4b0cc862409d8970a3262bdb2, type: 3}
+  dbManagerPrefab: {fileID: 2095065045697111282, guid: 76b12ba012ffe644abe6861719d63c7e, type: 3}
