@@ -4337,36 +4337,36 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _journalEntryPrefab: {fileID: 6116714263341541039, guid: 833be3171a636324db32093580b14a91, type: 3}
-  _contentParent: {fileID: 0}
-  _homeCanvas: {fileID: 0}
-  _previewCanvas: {fileID: 0}
-  _createCanvasStep1: {fileID: 0}
-  _createCanvasStep2: {fileID: 0}
-  _editCanvasStep1: {fileID: 0}
-  _editCanvasStep2: {fileID: 0}
-  _deleteDialogCanvas: {fileID: 0}
-  _previewTitle: {fileID: 0}
-  _previewContent: {fileID: 0}
-  _previewBackButton: {fileID: 0}
-  _previewEditButton: {fileID: 0}
-  _previewDeleteButton: {fileID: 0}
-  _newJournalButton: {fileID: 0}
-  _createTitleInput: {fileID: 0}
-  _createDateText: {fileID: 0}
-  _createNextButton: {fileID: 0}
-  _createCancel1Button: {fileID: 0}
-  _createContentInput: {fileID: 0}
-  _createSaveButton: {fileID: 0}
-  _createCancel2Button: {fileID: 0}
-  _editTitleInput: {fileID: 0}
-  _editDateText: {fileID: 0}
-  _editNextButton: {fileID: 0}
-  _editCancel1Button: {fileID: 0}
-  _editContentInput: {fileID: 0}
-  _editSaveButton: {fileID: 0}
-  _editCancel2Button: {fileID: 0}
-  _deleteYesButton: {fileID: 0}
-  _deleteNoButton: {fileID: 0}
+  _contentParent: {fileID: 1695560217}
+  _homeCanvas: {fileID: 735797336}
+  _previewCanvas: {fileID: 1779078183}
+  _createCanvasStep1: {fileID: 863800419}
+  _createCanvasStep2: {fileID: 347765082}
+  _editCanvasStep1: {fileID: 1840944699}
+  _editCanvasStep2: {fileID: 1225235787}
+  _deleteDialogCanvas: {fileID: 1003518811}
+  _previewTitle: {fileID: 157243555}
+  _previewContent: {fileID: 580057020}
+  _previewBackButton: {fileID: 43365667}
+  _previewEditButton: {fileID: 1245609458}
+  _previewDeleteButton: {fileID: 1175598183}
+  _newJournalButton: {fileID: 1936605088}
+  _createTitleInput: {fileID: 859319379}
+  _createDateText: {fileID: 665427744}
+  _createNextButton: {fileID: 153333702}
+  _createCancel1Button: {fileID: 1756451752}
+  _createContentInput: {fileID: 1327741773}
+  _createSaveButton: {fileID: 676951386}
+  _createCancel2Button: {fileID: 1992812576}
+  _editTitleInput: {fileID: 473779083}
+  _editDateText: {fileID: 2039384121}
+  _editNextButton: {fileID: 1152452237}
+  _editCancel1Button: {fileID: 911075347}
+  _editContentInput: {fileID: 946630435}
+  _editSaveButton: {fileID: 316452026}
+  _editCancel2Button: {fileID: 19521336}
+  _deleteYesButton: {fileID: 3193308}
+  _deleteNoButton: {fileID: 277195657}
 --- !u!82 &723771991
 AudioSource:
   m_ObjectHideFlags: 0
