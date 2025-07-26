@@ -132,8 +132,16 @@ public class AudioManager : MonoBehaviour
         StopAllSceneAudio();
         CancelPendingSfxDelay();
 
-        var sfx = audioRoot.Find(SfxSourceName)?.GetComponent<AudioSource>();
-        var bgm = audioRoot.Find(BgmSourceName)?.GetComponent<AudioSource>();
+        var sfxTransform = audioRoot.Find(SfxSourceName);
+        var bgmTransform = audioRoot.Find(BgmSourceName);
+
+        AudioSource sfx = null;
+        if (sfxTransform != null)
+            sfxTransform.TryGetComponent(out sfx);
+
+        AudioSource bgm = null;
+        if (bgmTransform != null)
+            bgmTransform.TryGetComponent(out bgm);
 
         if (sfx != null)
         {
@@ -141,9 +149,9 @@ public class AudioManager : MonoBehaviour
             if (bgm != null)
                 _sfxDelayCoroutine = StartCoroutine(PlayBGMAfterSFX(sfx.clip.length, bgm));
         }
-        else
+        else if (bgm != null)
         {
-            bgm?.Play();
+            bgm.Play();
         }
     }
 

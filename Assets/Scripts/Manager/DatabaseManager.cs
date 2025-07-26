@@ -16,12 +16,7 @@ namespace EMILIA.Data
         /// </summary>
         public static DatabaseManager Instance
         {
-            get
-            {
-                if (_instance == null)
-                    Debug.LogError("[DatabaseManager] Instance is NULL. Make sure a DatabaseManager exists in the scene.");
-                return _instance;
-            }
+            get => _instance;
             private set => _instance = value;
         }
 
