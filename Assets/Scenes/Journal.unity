@@ -917,8 +917,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &153333701
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1781,8 +1781,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &316452025
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4164,8 +4164,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &676951385
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4336,37 +4336,37 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bd307495f232d00438dbddd187187640, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  journalEntryPrefab: {fileID: 6116714263341541039, guid: 833be3171a636324db32093580b14a91, type: 3}
-  contentParent: {fileID: 1695560217}
-  homeCanvas: {fileID: 735797336}
-  journalPrevCanvas: {fileID: 1779078183}
-  journalCreateCanvas1: {fileID: 863800419}
-  journalCreateCanvas2: {fileID: 347765082}
-  journalEditCanvas1: {fileID: 1840944699}
-  journalEditCanvas2: {fileID: 1225235787}
-  journalPrevTitle: {fileID: 157243555}
-  journalPrevContent: {fileID: 580057020}
-  prevBackButton: {fileID: 43365667}
-  prevEditButton: {fileID: 1245609458}
-  newJournalButton: {fileID: 1936605088}
-  createTitleInput: {fileID: 859319379}
-  createDateText: {fileID: 665427744}
-  createNextButton: {fileID: 153333702}
-  createCancelStep1Button: {fileID: 1756451752}
-  createContentInput: {fileID: 1327741773}
-  createSaveButton: {fileID: 676951386}
-  createCancelStep2Button: {fileID: 1992812576}
-  editTitleInput: {fileID: 473779083}
-  editDateText: {fileID: 2039384121}
-  editNextButton: {fileID: 1152452237}
-  editCancelStep1Button: {fileID: 911075347}
-  editContentInput: {fileID: 946630435}
-  editSaveButton: {fileID: 316452026}
-  editCancelStep2Button: {fileID: 19521336}
-  deleteJournalCanvas: {fileID: 1003518811}
-  deleteYesButton: {fileID: 3193308}
-  deleteNoButton: {fileID: 277195657}
-  deleteButton: {fileID: 1175598183}
+  _journalEntryPrefab: {fileID: 6116714263341541039, guid: 833be3171a636324db32093580b14a91, type: 3}
+  _contentParent: {fileID: 1695560217}
+  _homeCanvas: {fileID: 735797336}
+  _previewCanvas: {fileID: 1779078183}
+  _createCanvasStep1: {fileID: 863800419}
+  _createCanvasStep2: {fileID: 347765082}
+  _editCanvasStep1: {fileID: 1840944699}
+  _editCanvasStep2: {fileID: 1225235787}
+  _deleteDialogCanvas: {fileID: 1003518811}
+  _previewTitle: {fileID: 157243555}
+  _previewContent: {fileID: 580057020}
+  _previewBackButton: {fileID: 43365667}
+  _previewEditButton: {fileID: 1245609458}
+  _previewDeleteButton: {fileID: 1175598183}
+  _newJournalButton: {fileID: 1936605088}
+  _createTitleInput: {fileID: 859319379}
+  _createDateText: {fileID: 665427744}
+  _createNextButton: {fileID: 153333702}
+  _createCancel1Button: {fileID: 1756451752}
+  _createContentInput: {fileID: 1327741773}
+  _createSaveButton: {fileID: 676951386}
+  _createCancel2Button: {fileID: 1992812576}
+  _editTitleInput: {fileID: 473779083}
+  _editDateText: {fileID: 2039384121}
+  _editNextButton: {fileID: 1152452237}
+  _editCancel1Button: {fileID: 911075347}
+  _editContentInput: {fileID: 946630435}
+  _editSaveButton: {fileID: 316452026}
+  _editCancel2Button: {fileID: 19521336}
+  _deleteYesButton: {fileID: 3193308}
+  _deleteNoButton: {fileID: 277195657}
 --- !u!82 &723771991
 AudioSource:
   m_ObjectHideFlags: 0
@@ -6091,8 +6091,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &1152452236
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6539,8 +6539,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &1175598182
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6821,8 +6821,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &1245609457
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9879,8 +9879,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: MainMenu
+  _buttonSfx: {fileID: 0}
 --- !u!1 &2115925432
 GameObject:
   m_ObjectHideFlags: 0
