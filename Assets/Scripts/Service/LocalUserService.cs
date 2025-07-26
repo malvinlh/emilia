@@ -27,25 +27,36 @@ public class LocalUserService : MonoBehaviour
     {
         try
         {
-            // Try to find an existing user
             var existing = _db.Find<User>(nickname);
+
+            var normalizedFullName = 
+                string.IsNullOrWhiteSpace(fullName) 
+                    ? null 
+                    : fullName;
+
+            if (existing != null 
+            && existing.Username != null 
+            && existing.Username != normalizedFullName)
+            {
+                onError?.Invoke(
+                    "Masukkan nama lengkap yang sama dengan yang Anda gunakan saat pertama kali mendaftar."
+                );
+                yield break;
+            }
 
             if (existing == null)
             {
-                // New user: set created_at to now
-                var user = new User
-                {
+                var user = new User {
                     Id        = nickname,
                     Name      = nickname,
-                    Username  = string.IsNullOrWhiteSpace(fullName) ? null : fullName,
+                    Username  = normalizedFullName,
                     CreatedAt = DateTime.UtcNow
                 };
                 _db.Insert(user);
             }
             else
             {
-                // Update only the full name (username)
-                existing.Username = string.IsNullOrWhiteSpace(fullName) ? null : fullName;
+                existing.Username = normalizedFullName;
                 _db.Update(existing);
             }
 

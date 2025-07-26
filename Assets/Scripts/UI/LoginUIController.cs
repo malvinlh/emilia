@@ -1,65 +1,85 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using UnityEngine.SceneManagement;
-using System.Collections;
 
 public class LoginUIController : MonoBehaviour
 {
+    #region Inspector Fields
+
     [Header("UI References")]
-    public TMP_InputField fullNameInput;
-    public TMP_InputField nicknameInput;
-    public Button continueButton;
-    public TextMeshProUGUI errorText;
-    public SceneButtonHandler sceneButtonHandler;
+    [SerializeField] private TMP_InputField fullNameInput;
+    [SerializeField] private TMP_InputField nicknameInput;
+    [SerializeField] private Button continueButton;
+    [SerializeField] private TextMeshProUGUI errorText;
+    [SerializeField] private SceneButtonHandler sceneButtonHandler;
 
-    void Start()
+    #endregion
+
+    #region Constants
+
+    private const string NicknameRequiredMessage = "⚠ Nickname wajib diisi.";
+    private const string ErrorPrefix = "⚠ ";
+
+    #endregion
+
+    #region Unity Callbacks
+
+    private void Start()
     {
-        // kosongkan errorText
-        if (errorText != null) 
-            errorText.text = "";
-
-        // selalu allow click, tapi kita validasi di OnContinueClicked
+        ClearError();
         continueButton.onClick.AddListener(OnContinueClicked);
-
-        // optional: clear error saat user mulai ketik
-        nicknameInput.onValueChanged.AddListener(_ => {
-            if (!string.IsNullOrWhiteSpace(nicknameInput.text) && errorText != null)
-                errorText.text = "";
-        });
+        nicknameInput.onValueChanged.AddListener(_ => ClearError());
+        fullNameInput.onValueChanged.AddListener(_ => ClearError());
     }
 
-    void OnContinueClicked()
-    {
-        string fullName = fullNameInput.text.Trim();
-        string nickname = nicknameInput.text.Trim();
+    #endregion
 
-        // VALIDASI LOKAL
+    #region Event Handlers
+
+    private void OnContinueClicked()
+    {
+        string nickname = nicknameInput.text.Trim();
+        string fullName = fullNameInput.text.Trim();
+
         if (string.IsNullOrWhiteSpace(nickname))
         {
-            if (errorText != null)
-                errorText.text = "⚠ Nickname wajib diisi!";
+            ShowError(NicknameRequiredMessage);
             return;
         }
 
-        // baru panggil service
-        StartCoroutine(
-            ServiceManager.Instance.UserService.UpsertUser(
-                nickname,
-                fullName,
-                onSuccess: () => {
-                    PlayerPrefs.SetString("Nickname", nickname);
-                    PlayerPrefs.Save();
-                    Debug.Log($"[Login] Saved Nickname: {PlayerPrefs.GetString("Nickname")}");
-                    sceneButtonHandler.LoadTargetScene();
-                },
-                onError: err => {
-                    if (errorText != null)
-                        errorText.text = "Login gagal: " + err;
-                    else
-                        Debug.LogError("Login gagal: " + err);
-                }
-            )
-        );
+        StartCoroutine(ServiceManager.Instance.UserService.UpsertUser(
+            nickname,
+            fullName,
+            onSuccess: () => ProcessLoginSuccess(nickname),
+            onError: err => ShowError(ErrorPrefix + err)
+        ));
     }
+
+    private void ProcessLoginSuccess(string nickname)
+    {
+        PlayerPrefs.SetString("Nickname", nickname);
+        PlayerPrefs.Save();
+        Debug.Log($"[Login] Saved Nickname: {nickname}");
+        sceneButtonHandler.LoadTargetScene();
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    private void ShowError(string message)
+    {
+        if (errorText != null)
+            errorText.text = message;
+        else
+            Debug.LogWarning(message);
+    }
+
+    private void ClearError()
+    {
+        if (errorText != null)
+            errorText.text = string.Empty;
+    }
+
+    #endregion
 }
