@@ -12,6 +12,13 @@ public class LocalUserService : MonoBehaviour
 
     #endregion
 
+    #region Constants
+
+    private const string FullNameMismatchMessage =
+        "Masukkan nama lengkap yang sama dengan yang Anda gunakan saat pertama kali mendaftar.";
+
+    #endregion
+
     #region Unity Callbacks
 
     private void Awake()
@@ -36,38 +43,22 @@ public class LocalUserService : MonoBehaviour
     {
         try
         {
-            var existing = _db.Find<User>(nickname);
+            var existing         = _database.Find<User>(nickname);
+            var normalizedName   = NormalizeFullName(fullName);
 
-            var normalizedFullName = 
-                string.IsNullOrWhiteSpace(fullName) 
-                    ? null 
-                    : fullName;
-
-            if (existing != null 
-            && existing.Username != null 
-            && existing.Username != normalizedFullName)
+            // If a full name was previously set, require the same name now
+            if (existing != null
+                && existing.Username != null
+                && existing.Username != normalizedName)
             {
-                onError?.Invoke(
-                    "Masukkan nama lengkap yang sama dengan yang Anda gunakan saat pertama kali mendaftar."
-                );
+                onError?.Invoke(FullNameMismatchMessage);
                 yield break;
             }
 
             if (existing == null)
-            {
-                var user = new User {
-                    Id        = nickname,
-                    Name      = nickname,
-                    Username  = normalizedFullName,
-                    CreatedAt = DateTime.UtcNow
-                };
-                _db.Insert(user);
-            }
+                CreateUser(nickname, normalizedName);
             else
-            {
-                existing.Username = normalizedFullName;
-                _db.Update(existing);
-            }
+                UpdateUser(existing, normalizedName);
 
             onSuccess?.Invoke();
         }
@@ -82,6 +73,9 @@ public class LocalUserService : MonoBehaviour
     #endregion
 
     #region Helpers
+
+    private static string NormalizeFullName(string fullName) =>
+        string.IsNullOrWhiteSpace(fullName) ? null : fullName;
 
     private void CreateUser(string nickname, string normalizedFullName)
     {
