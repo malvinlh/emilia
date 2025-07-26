@@ -44,7 +44,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 793abd235b5d35e42825f8a16ca91968, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  scenes:
+  _scenes:
   - sceneKey: StartMenu
     sceneName: StartMenu
   - sceneKey: Login
@@ -57,4 +57,4 @@ MonoBehaviour:
     sceneName: Journal
   - sceneKey: Settings
     sceneName: Settings
-  currentSceneKey: StartMenu
+  _currentSceneKey: 

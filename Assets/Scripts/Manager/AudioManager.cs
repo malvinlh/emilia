@@ -5,44 +5,34 @@ using System.Collections.Generic;
 
 public class AudioManager : MonoBehaviour
 {
+    #region Singleton
+
     public static AudioManager Instance { get; private set; }
 
-    private Dictionary<string, Transform> sceneAudioMap = new Dictionary<string, Transform>();
-    private Coroutine sfxDelayCoroutine = null;
+    #endregion
 
-    AudioSource[] sources;
-    const string PREF_KEY = "MasterVolume";
+    #region Constants & Fields
 
-    void Awake()
+    private const string PrefKeyMasterVolume = "MasterVolume";
+    private const string SfxSourceName        = "SFXSource";
+    private const string BgmSourceName        = "BGMSource";
+
+    private Dictionary<string, Transform> _sceneAudioMap = new Dictionary<string, Transform>();
+    private Coroutine                     _sfxDelayCoroutine;
+    private AudioSource[]                 _sources;
+
+    #endregion
+
+    #region Unity Callbacks
+
+    private void Awake()
     {
-        if (Instance == null)
-        {
-            Instance = this;
-            DontDestroyOnLoad(gameObject);
-            // ambil semua AudioSource di children
-            sources = GetComponentsInChildren<AudioSource>(true);
-            // restore volume terakhir
-            float v = PlayerPrefs.GetFloat(PREF_KEY, 1f);
-            SetMasterVolume(v);
-            BuildSceneAudioMap();
-        }
-        else
-        {
-            Destroy(gameObject);
-        }
-    }
+        if (!InitializeSingleton())
+            return;
 
-    /// <summary>
-    /// Set volume semua AudioSource
-    /// </summary>
-    public void SetMasterVolume(float volume)
-    {
-        foreach (var src in sources)
-            src.volume = volume;
-
-        // simpan untuk next time
-        PlayerPrefs.SetFloat(PREF_KEY, volume);
-        PlayerPrefs.Save();
+        CacheAudioSources();
+        RestoreMasterVolume();
+        BuildSceneAudioMap();
     }
 
     private void OnEnable()
@@ -55,59 +45,129 @@ public class AudioManager : MonoBehaviour
         SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
-    private void BuildSceneAudioMap()
+    #endregion
+
+    #region Public API
+
+    /// <summary>
+    /// Sets volume for all managed AudioSources and persists the value.
+    /// </summary>
+    public void SetMasterVolume(float volume)
     {
-        sceneAudioMap.Clear();
-        foreach (Transform child in transform)
-        {
-            sceneAudioMap[child.name] = child;
-        }
+        foreach (var src in _sources)
+            src.volume = volume;
+
+        PlayerPrefs.SetFloat(PrefKeyMasterVolume, volume);
+        PlayerPrefs.Save();
     }
 
-    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    /// <summary>
+    /// Plays a one-shot SFX clip at the given volume and destroys it when done.
+    /// </summary>
+    public AudioSource PlaySFX(AudioClip clip, float volume = 1f)
     {
-        PlaySceneBGM(scene.name);
+        if (clip == null)
+            return null;
+
+        var go = new GameObject($"SFX_{clip.name}");
+        var sfx = go.AddComponent<AudioSource>();
+        sfx.clip   = clip;
+        sfx.volume = volume;
+        sfx.Play();
+
+        Destroy(go, clip.length);
+        return sfx;
     }
+
+    #endregion
+
+    #region Initialization Helpers
+
+    private bool InitializeSingleton()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
+            return true;
+        }
+
+        Destroy(gameObject);
+        return false;
+    }
+
+    private void CacheAudioSources()
+    {
+        _sources = GetComponentsInChildren<AudioSource>(true);
+    }
+
+    private void RestoreMasterVolume()
+    {
+        var savedVol = PlayerPrefs.GetFloat(PrefKeyMasterVolume, 1f);
+        SetMasterVolume(savedVol);
+    }
+
+    private void BuildSceneAudioMap()
+    {
+        _sceneAudioMap.Clear();
+        foreach (Transform child in transform)
+            _sceneAudioMap[child.name] = child;
+    }
+
+    #endregion
+
+    #region Scene BGM Logic
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        => PlaySceneBGM(scene.name);
 
     private void PlaySceneBGM(string sceneName)
     {
-        if (!sceneAudioMap.TryGetValue(sceneName, out var sceneAudio))
+        if (!_sceneAudioMap.TryGetValue(sceneName, out var audioRoot))
         {
             Debug.LogWarning($"[AudioManager] No audio setup found for scene '{sceneName}'.");
             return;
         }
 
-        // Stop semua audio dulu
-        foreach (var kvp in sceneAudioMap)
-        {
-            foreach (var audio in kvp.Value.GetComponentsInChildren<AudioSource>())
-            {
-                audio.Stop();
-            }
-        }
+        StopAllSceneAudio();
+        CancelPendingSfxDelay();
 
-        // Stop coroutine sebelumnya kalau ada
-        if (sfxDelayCoroutine != null)
-        {
-            StopCoroutine(sfxDelayCoroutine);
-            sfxDelayCoroutine = null;
-        }
+        var sfxTransform = audioRoot.Find(SfxSourceName);
+        var bgmTransform = audioRoot.Find(BgmSourceName);
 
-        AudioSource sfx = sceneAudio.Find("SFXSource")?.GetComponent<AudioSource>();
-        AudioSource bgm = sceneAudio.Find("BGMSource")?.GetComponent<AudioSource>();
+        AudioSource sfx = null;
+        if (sfxTransform != null)
+            sfxTransform.TryGetComponent(out sfx);
+
+        AudioSource bgm = null;
+        if (bgmTransform != null)
+            bgmTransform.TryGetComponent(out bgm);
 
         if (sfx != null)
         {
             sfx.Play();
-
             if (bgm != null)
-            {
-                sfxDelayCoroutine = StartCoroutine(PlayBGMAfterSFX(sfx.clip.length, bgm));
-            }
+                _sfxDelayCoroutine = StartCoroutine(PlayBGMAfterSFX(sfx.clip.length, bgm));
         }
         else if (bgm != null)
         {
-            bgm.Play(); // kalau nggak ada SFX, langsung mainkan BGM
+            bgm.Play();
+        }
+    }
+
+    private void StopAllSceneAudio()
+    {
+        foreach (var kvp in _sceneAudioMap)
+        foreach (var src in kvp.Value.GetComponentsInChildren<AudioSource>())
+            src.Stop();
+    }
+
+    private void CancelPendingSfxDelay()
+    {
+        if (_sfxDelayCoroutine != null)
+        {
+            StopCoroutine(_sfxDelayCoroutine);
+            _sfxDelayCoroutine = null;
         }
     }
 
@@ -117,17 +177,5 @@ public class AudioManager : MonoBehaviour
         bgm.Play();
     }
 
-    public AudioSource PlaySFX(AudioClip clip, float volume = 1f)
-    {
-        if (clip == null) return null;
-
-        GameObject sfxGO = new GameObject("SFX_" + clip.name);
-        AudioSource sfxSource = sfxGO.AddComponent<AudioSource>();
-        sfxSource.clip = clip;
-        sfxSource.volume = volume;
-        sfxSource.Play();
-
-        Destroy(sfxGO, clip.length); // Hapus setelah selesai
-        return sfxSource;
-    }
+    #endregion
 }

@@ -1,21 +1,30 @@
-// LocalUserService.cs
-using UnityEngine;
 using System;
 using System.Collections;
 using SQLite;
+using UnityEngine;
 using EMILIA.Data;
 
 public class LocalUserService : MonoBehaviour
 {
-    private SQLiteConnection _db;
+    #region Dependencies
 
-    void Awake()
+    private SQLiteConnection _database;
+
+    #endregion
+
+    #region Unity Callbacks
+
+    private void Awake()
     {
-        _db = DatabaseManager.Instance.DB;
+        _database = DatabaseManager.Instance.DB;
     }
 
+    #endregion
+
+    #region Public API
+
     /// <summary>
-    /// INSERT or UPDATE a user based on nickname as the primary key.
+    /// Inserts a new user or updates an existing one, keyed by nickname.
     /// Mirrors the Supabase UpsertUser signature.
     /// </summary>
     public IEnumerator UpsertUser(
@@ -66,6 +75,31 @@ public class LocalUserService : MonoBehaviour
         {
             onError?.Invoke(ex.Message);
         }
+
         yield break;
     }
+
+    #endregion
+
+    #region Helpers
+
+    private void CreateUser(string nickname, string normalizedFullName)
+    {
+        var newUser = new User
+        {
+            Id        = nickname,
+            Name      = nickname,
+            Username  = normalizedFullName,
+            CreatedAt = DateTime.UtcNow
+        };
+        _database.Insert(newUser);
+    }
+
+    private void UpdateUser(User existingUser, string normalizedFullName)
+    {
+        existingUser.Username = normalizedFullName;
+        _database.Update(existingUser);
+    }
+
+    #endregion
 }
