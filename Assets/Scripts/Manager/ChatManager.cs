@@ -7,229 +7,249 @@ using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using EMILIA.Data;  // your namespace for Conversation/Message models
+using EMILIA.Data;
 
 public class ChatManager : MonoBehaviour
 {
+    #region Inspector Fields
+
     [Header("Prefabs & UI References")]
-    public GameObject     userBubblePrefab;
-    public GameObject     aiBubblePrefab;
-    public GameObject     historyButtonPrefab;
-    public Transform      chatContentParent;
-    public Transform      chatHistoryParent;
-    public TMP_InputField inputField;
-    public Button         newChatButton;
-    public Button         sendButton;
+    [SerializeField] private GameObject _userBubblePrefab;
+    [SerializeField] private GameObject _aiBubblePrefab;
+    [SerializeField] private GameObject _historyButtonPrefab;
+    [SerializeField] private Transform _chatContentParent;
+    [SerializeField] private Transform _chatHistoryParent;
+    [SerializeField] private TMP_InputField _inputField;
+    [SerializeField] private Button _newChatButton;
+    [SerializeField] private Button _sendButton;
 
     [Header("Delete Confirmation UI")]
-    public GameObject    deleteChatSetting;
-    public Button        deleteYesButton;
-    public Button        deleteNoButton;
+    [SerializeField] private GameObject _deleteChatSetting;
+    [SerializeField] private Button _deleteYesButton;
+    [SerializeField] private Button _deleteNoButton;
 
-    private string       pendingDeleteId;
+    #endregion
+
+    #region Constants & Fields
+
+    private const string PrefKeyNickname        = "Nickname";
+    private const int    SnippetMaxLength       = 20;
+    private static readonly Regex ConversationRegex =
+        new Regex(@"cv(\d+)$", RegexOptions.Compiled);
 
     [HideInInspector]
-    public string         CurrentUserId;
+    public string CurrentUserId;
 
-    private string        currentConversationId;
-    private bool          isAwaitingResponse = false;
-    private List<string>  userConvs = new List<string>();
+    private string _currentConversationId;
+    private string _pendingDeleteId;
+    private bool   _isAwaitingResponse;
+    private readonly List<string> _userConvs = new List<string>();
 
-    void Awake()
+    #endregion
+
+    #region Unity Callbacks
+
+    private void Awake()
     {
-        // 1) Load current user
-        CurrentUserId = PlayerPrefs.GetString("Nickname", "");
-        Debug.Log($"[ChatManager] CurrentUserId = '{CurrentUserId}'");
-
-        // 2) Clear the chat UI immediately
-        ClearChat();
-        currentConversationId = null;
-
-        // 3) Make sure the delete‐dialog is hidden
-        deleteChatSetting.SetActive(false);
-
-        // 4) Hook up ALL buttons right away
-        newChatButton.onClick.AddListener(OnNewChatClicked);
-        sendButton.onClick.AddListener(OnSendClicked);
-        deleteNoButton.onClick.AddListener(() =>
-        {
-            deleteChatSetting.SetActive(false);
-            pendingDeleteId = null;
-        });
-        deleteYesButton.onClick.AddListener(ConfirmDeleteConversation);
+        LoadCurrentUser();
+        InitializeUI();
     }
 
-    void Start()
+    private void Start()
     {
-        // 5) Fetch conversation history after Awake-time hookups
-        StartCoroutine(
-            ServiceManager.Instance.ChatService.FetchUserConversations(
-                CurrentUserId,
-                convIds =>
-                {
-                    PopulateHistoryButtons(convIds);
-                    userConvs = convIds.ToList();
-                },
-                err => Debug.LogError("Fetch conv IDs failed: " + err)
-            )
-        );
+        FetchAndPopulateHistory();
+    }
+
+    #endregion
+
+    #region Initialization
+
+    private void LoadCurrentUser()
+    {
+        CurrentUserId = PlayerPrefs.GetString(PrefKeyNickname, "");
+        Debug.Log($"[ChatManager] CurrentUserId = '{CurrentUserId}'");
+        _currentConversationId = null;
+        ClearChat();
+    }
+
+    private void InitializeUI()
+    {
+        _deleteChatSetting.SetActive(false);
+
+        _newChatButton.onClick.AddListener(OnNewChatClicked);
+        _sendButton.onClick.AddListener(OnSendClicked);
+        _deleteNoButton.onClick.AddListener(() =>
+        {
+            _deleteChatSetting.SetActive(false);
+            _pendingDeleteId = null;
+        });
+        _deleteYesButton.onClick.AddListener(ConfirmDeleteConversation);
+    }
+
+    #endregion
+
+    #region History Management
+
+    private void FetchAndPopulateHistory()
+    {
+        StartCoroutine(ServiceManager.Instance.ChatService.FetchUserConversations(
+            CurrentUserId,
+            convIds =>
+            {
+                PopulateHistoryButtons(convIds);
+                _userConvs.Clear();
+                _userConvs.AddRange(convIds);
+            },
+            err => Debug.LogError($"Fetch conv IDs failed: {err}")
+        ));
     }
 
     private void PopulateHistoryButtons(string[] convIds)
     {
-        // 1) Clear existing
-        for (int i = chatHistoryParent.childCount - 1; i >= 0; i--)
-            Destroy(chatHistoryParent.GetChild(i).gameObject);
+        // clear existing buttons
+        for (int i = _chatHistoryParent.childCount - 1; i >= 0; i--)
+            Destroy(_chatHistoryParent.GetChild(i).gameObject);
 
-        // 2) Re‐create one button per conversation
+        // create new ones
         for (int i = 0; i < convIds.Length; i++)
         {
-            string convId = convIds[i];
-            var go  = Instantiate(historyButtonPrefab, chatHistoryParent);
-            var hb  = go.GetComponent<HistoryButton>();
-            hb.SetConversationId(convId);
-
-            // placeholder label
-            hb.SetLabel($"Chat {i+1}");
-
-            // fetch snippet
-            StartCoroutine(
-                ServiceManager.Instance.ChatService.FetchFirstMessage(
-                    convId,
-                    firstMsg =>
-                    {
-                        const int MAX = 20;
-                        string snippet = string.IsNullOrEmpty(firstMsg)
-                            ? $"Chat {i+1}"
-                            : (firstMsg.Length > MAX
-                                ? firstMsg.Substring(0, MAX) + "…"
-                                : firstMsg);
-                        hb.SetLabel(snippet);
-                    },
-                    err =>
-                    {
-                        Debug.LogWarning($"FetchFirstMessage failed for {convId}: {err}");
-                    }
-                )
-            );
-
-            // hook delete button on each history entry
-            var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
-            if (delBtn != null)
-            {
-                delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
-            }
+            SetupHistoryButton(convIds[i], i);
         }
+    }
+
+    private void SetupHistoryButton(string convId, int index)
+    {
+        var go = Instantiate(_historyButtonPrefab, _chatHistoryParent);
+        var hb = go.GetComponent<HistoryButton>();
+        hb.SetConversationId(convId);
+        hb.SetLabel($"Chat {index + 1}");
+
+        // update snippet asynchronously
+        StartCoroutine(ServiceManager.Instance.ChatService.FetchFirstMessage(
+            convId,
+            firstMsg =>
+            {
+                hb.SetLabel(FormatSnippet(firstMsg, index + 1));
+            },
+            err => Debug.LogWarning($"FetchFirstMessage failed for {convId}: {err}")
+        ));
+
+        // hook delete button
+        var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
+        if (delBtn != null)
+            delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
+    }
+
+    private static string FormatSnippet(string msg, int fallbackIndex)
+    {
+        if (string.IsNullOrEmpty(msg))
+            return $"Chat {fallbackIndex}";
+        return msg.Length <= SnippetMaxLength
+            ? msg
+            : msg.Substring(0, SnippetMaxLength) + "…";
     }
 
     public void OnHistoryClicked(string conversationId)
     {
-        currentConversationId = conversationId;
+        _currentConversationId = conversationId;
         ClearChat();
-
-        StartCoroutine(
-            ServiceManager.Instance.ChatService.FetchConversationWithMessages(
-                conversationId,
-                CurrentUserId,
-                msgs =>
-                {
-                    foreach (var m in msgs)
-                        CreateBubble(m.Text, m.Sender == CurrentUserId);
-                },
-                err => Debug.LogError("Fetch conversation failed: " + err)
-            )
-        );
+        StartCoroutine(ServiceManager.Instance.ChatService.FetchConversationWithMessages(
+            conversationId,
+            CurrentUserId,
+            msgs =>
+            {
+                foreach (var m in msgs)
+                    CreateBubble(m.Text, m.Sender == CurrentUserId);
+            },
+            err => Debug.LogError($"Fetch conversation failed: {err}")
+        ));
     }
+
+    #endregion
+
+    #region Chat Sending
 
     private void OnNewChatClicked()
     {
         ClearChat();
-        currentConversationId = null;
+        _currentConversationId = null;
     }
 
     private void OnSendClicked()
     {
-        string text = inputField.text.Trim();
-        if (string.IsNullOrEmpty(text) || isAwaitingResponse)
+        var text = _inputField.text.Trim();
+        if (string.IsNullOrEmpty(text) || _isAwaitingResponse)
             return;
 
-        inputField.text = "";
+        _inputField.text = "";
         CreateBubble(text, true);
 
-        // if new conversation
-        if (string.IsNullOrEmpty(currentConversationId))
-        {
-            var regex = new Regex(@"cv(\d+)$");
-            int nextIdx = userConvs
-                .Select(id =>
-                {
-                    var m = regex.Match(id);
-                    return m.Success ? int.Parse(m.Groups[1].Value) : 0;
-                })
-                .DefaultIfEmpty(0)
-                .Max() + 1;
-
-            currentConversationId = $"{CurrentUserId}_cv{nextIdx:00}";
-            userConvs.Add(currentConversationId);
-
-            // add history button
-            var go = Instantiate(historyButtonPrefab, chatHistoryParent);
-            var hb = go.GetComponent<HistoryButton>();
-            var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
-            if (delBtn != null)
-                delBtn.onClick.AddListener(() => OnDeleteClicked(currentConversationId));
-            hb.SetConversationId(currentConversationId);
-            const int SNIP_MAX = 20;
-            string snippet = text.Length > SNIP_MAX
-                ? text.Substring(0, SNIP_MAX) + "..."
-                : text;
-            hb.SetLabel(snippet);
-
-            // save conversation then send message
-            StartCoroutine(
-                ServiceManager.Instance.ChatService.CreateConversation(
-                    currentConversationId,
-                    CurrentUserId,
-                    onSuccess: () => StartCoroutine(SendUserMessage(text)),
-                    onError: err => Debug.LogError("CreateConversation failed: " + err)
-                )
-            );
-        }
+        if (string.IsNullOrEmpty(_currentConversationId))
+            StartNewConversation(text);
         else
-        {
             StartCoroutine(SendUserMessage(text));
-        }
+    }
+
+    private void StartNewConversation(string text)
+    {
+        _currentConversationId = GenerateConversationId();
+        _userConvs.Add(_currentConversationId);
+        AddHistoryButtonForNew(_currentConversationId, text);
+
+        StartCoroutine(ServiceManager.Instance.ChatService.CreateConversation(
+            _currentConversationId,
+            CurrentUserId,
+            onSuccess: () => StartCoroutine(SendUserMessage(text)),
+            onError:   err => Debug.LogError($"CreateConversation failed: {err}")
+        ));
+    }
+
+    private string GenerateConversationId()
+    {
+        int nextIdx = _userConvs
+            .Select(id =>
+            {
+                var m = ConversationRegex.Match(id);
+                return m.Success ? int.Parse(m.Groups[1].Value) : 0;
+            })
+            .DefaultIfEmpty(0)
+            .Max() + 1;
+
+        return $"{CurrentUserId}_cv{nextIdx:00}";
+    }
+
+    private void AddHistoryButtonForNew(string convId, string initialMsg)
+    {
+        var go = Instantiate(_historyButtonPrefab, _chatHistoryParent);
+        var hb = go.GetComponent<HistoryButton>();
+        hb.SetConversationId(convId);
+        hb.SetLabel(FormatSnippet(initialMsg, 1));
+
+        var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
+        if (delBtn != null)
+            delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
     }
 
     private IEnumerator SendUserMessage(string text)
     {
         yield return ServiceManager.Instance.ChatService.InsertMessage(
-            currentConversationId,
+            _currentConversationId,
             CurrentUserId,
             text,
-            onSuccess:    () => StartCoroutine(HandleAITurn(text)),
-            onError:      err => Debug.LogError("Insert message failed: " + err)
+            onSuccess: () => StartCoroutine(HandleAITurn(text)),
+            onError:   err => Debug.LogError($"Insert message failed: {err}")
         );
     }
 
-    private void CreateBubble(string message, bool isUser)
-    {
-        var prefab = isUser ? userBubblePrefab : aiBubblePrefab;
-        var go     = Instantiate(prefab, chatContentParent);
-        go.GetComponent<ChatBubbleController>()?.SetText(message);
-    }
+    #endregion
 
-    private void ClearChat()
-    {
-        for (int i = chatContentParent.childCount - 1; i >= 0; i--)
-            Destroy(chatContentParent.GetChild(i).gameObject);
-    }
+    #region AI Handling
 
     private IEnumerator HandleAITurn(string userMessage)
     {
-        isAwaitingResponse = true;
+        _isAwaitingResponse = true;
 
-        var typingGO   = Instantiate(aiBubblePrefab, chatContentParent);
+        var typingGO   = Instantiate(_aiBubblePrefab, _chatContentParent);
         var typingCtrl = typingGO.GetComponent<ChatBubbleController>();
         var anim       = StartCoroutine(AnimateTyping(typingCtrl));
 
@@ -238,69 +258,80 @@ public class ChatManager : MonoBehaviour
             StopCoroutine(anim);
             Destroy(typingGO);
             CreateBubble(response, false);
-
-            // save AI reply
-            StartCoroutine(
-                ServiceManager.Instance.ChatService.InsertMessage(
-                    currentConversationId,
-                    "Bot",
-                    response,
-                    onSuccess: () => Debug.Log("✅ AI message saved"),
-                    onError: err => Debug.LogError("Save AI message failed: " + err)
-                )
-            );
-
-            isAwaitingResponse = false;
+            SaveAIMessage(response);
+            _isAwaitingResponse = false;
         });
     }
 
+    private void SaveAIMessage(string response)
+    {
+        StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(
+            _currentConversationId,
+            "Bot",
+            response,
+            onSuccess: () => Debug.Log("✅ AI message saved"),
+            onError:   err => Debug.LogError($"Save AI message failed: {err}")
+        ));
+    }
+
+    #endregion
+
+    #region Delete Conversation
+
     public void OnDeleteClicked(string conversationId)
     {
-        pendingDeleteId = conversationId;
-        deleteChatSetting.SetActive(true);
+        _pendingDeleteId = conversationId;
+        _deleteChatSetting.SetActive(true);
     }
 
     private void ConfirmDeleteConversation()
     {
-        if (string.IsNullOrEmpty(pendingDeleteId))
+        if (string.IsNullOrEmpty(_pendingDeleteId))
             return;
 
-        StartCoroutine(
-            ServiceManager.Instance.ChatService.DeleteMessagesForConversation(
-                pendingDeleteId,
-                onSuccess: () =>
+        StartCoroutine(ServiceManager.Instance.ChatService.DeleteMessagesForConversation(
+            _pendingDeleteId,
+            onSuccess: () => StartCoroutine(ProceedDeleteConversation()),
+            onError:   err => Debug.LogError($"DeleteMessages failed: {err}")
+        ));
+    }
+
+    private IEnumerator ProceedDeleteConversation()
+    {
+        yield return ServiceManager.Instance.ChatService.DeleteConversation(
+            _pendingDeleteId,
+            onSuccess: () =>
+            {
+                _deleteChatSetting.SetActive(false);
+                FetchAndPopulateHistory();
+
+                if (_pendingDeleteId == _currentConversationId)
                 {
-                    StartCoroutine(
-                        ServiceManager.Instance.ChatService.DeleteConversation(
-                            pendingDeleteId,
-                            onSuccess: () =>
-                            {
-                                deleteChatSetting.SetActive(false);
+                    ClearChat();
+                    _currentConversationId = null;
+                }
 
-                                // refresh history
-                                StartCoroutine(
-                                    ServiceManager.Instance.ChatService.FetchUserConversations(
-                                        CurrentUserId,
-                                        convIds => PopulateHistoryButtons(convIds),
-                                        err => Debug.LogError("Fetch conv IDs failed: " + err)
-                                    )
-                                );
-
-                                if (pendingDeleteId == currentConversationId)
-                                {
-                                    ClearChat();
-                                    currentConversationId = null;
-                                }
-
-                                pendingDeleteId = null;
-                            },
-                            onError: err => Debug.LogError("DeleteConversation failed: " + err)
-                        )
-                    );
-                },
-                onError: err => Debug.LogError("DeleteMessages failed: " + err)
-            )
+                _pendingDeleteId = null;
+            },
+            onError: err => Debug.LogError($"DeleteConversation failed: {err}")
         );
+    }
+
+    #endregion
+
+    #region Utilities
+
+    private void CreateBubble(string message, bool isUser)
+    {
+        var prefab = isUser ? _userBubblePrefab : _aiBubblePrefab;
+        var go     = Instantiate(prefab, _chatContentParent);
+        go.GetComponent<ChatBubbleController>()?.SetText(message);
+    }
+
+    private void ClearChat()
+    {
+        for (int i = _chatContentParent.childCount - 1; i >= 0; i--)
+            Destroy(_chatContentParent.GetChild(i).gameObject);
     }
 
     private IEnumerator AnimateTyping(ChatBubbleController ctrl)
@@ -314,4 +345,6 @@ public class ChatManager : MonoBehaviour
             yield return new WaitForSeconds(0.5f);
         }
     }
+
+    #endregion
 }

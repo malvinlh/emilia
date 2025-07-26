@@ -1,13 +1,33 @@
-// Assets/Scripts/Data/DatabaseManager.cs
+using System.IO;
 using UnityEngine;
 using SQLite;
-using System.IO;
 
 namespace EMILIA.Data
 {
     public class DatabaseManager : MonoBehaviour
     {
-        public static DatabaseManager Instance { get; private set; }
+        private const string DatabaseFileName = "emilia.db";
+
+        #region Singleton
+
+        private static DatabaseManager _instance;
+        /// <summary>
+        /// Singleton instance of the DatabaseManager.
+        /// </summary>
+        public static DatabaseManager Instance
+        {
+            get
+            {
+                if (_instance == null)
+                    Debug.LogError("[DatabaseManager] Instance is NULL. Make sure a DatabaseManager exists in the scene.");
+                return _instance;
+            }
+            private set => _instance = value;
+        }
+
+        #endregion
+
+        #region Database Connection
 
         /// <summary>
         /// The shared SQLiteConnection. All CRUD services should use this.
@@ -15,53 +35,88 @@ namespace EMILIA.Data
         public SQLiteConnection DB => _db;
         private SQLiteConnection _db;
 
+        #endregion
+
+        #region Unity Callbacks
+
         private void Awake()
         {
-            // Singleton pattern
+            SetupSingleton();
+            InitializeDatabase();
+        }
+
+        private void OnApplicationQuit()
+        {
+            CloseDatabase();
+        }
+
+        #endregion
+
+        #region Initialization
+
+        private void SetupSingleton()
+        {
             if (Instance != null && Instance != this)
             {
                 Destroy(gameObject);
                 return;
             }
+
             Instance = this;
             DontDestroyOnLoad(gameObject);
-
-            InitializeDatabase();
         }
 
         private void InitializeDatabase()
         {
-            // 1) Build full path under persistentDataPath
-            const string filename = "emilia.db";
-            var path = Path.Combine(Application.persistentDataPath, filename);
+            var path = GetDatabasePath();
             Debug.Log($"[DatabaseManager] Opening SQLite DB at: {path}");
 
-            // 2) Open (or create) with ISO8601 DateTime storage
+            _db = CreateConnection(path);
+            EnableForeignKeys(_db);
+            CreateTables();
+        }
+
+        #endregion
+
+        #region Database Helpers
+
+        private static string GetDatabasePath()
+        {
+            return Path.Combine(Application.persistentDataPath, DatabaseFileName);
+        }
+
+        private static SQLiteConnection CreateConnection(string path)
+        {
             var connString = new SQLiteConnectionString(
                 databasePath: path,
-                storeDateTimeAsTicks: false, // <-- store DateTime as "YYYY-MM-DDTHH:MM:SS"
+                storeDateTimeAsTicks: false, 
                 openFlags: SQLiteOpenFlags.ReadWrite | SQLiteOpenFlags.Create
             );
-            _db = new SQLiteConnection(connString);
+            return new SQLiteConnection(connString);
+        }
 
-            // 3) Turn on foreign-key support (for cascades, FK integrity)
-            _db.Execute("PRAGMA foreign_keys = ON;");
+        private static void EnableForeignKeys(SQLiteConnection connection)
+        {
+            connection.Execute("PRAGMA foreign_keys = ON;");
+        }
 
-            // 4) Create tables to match your ER schema
-            _db.CreateTable<User>();         // users(id TEXT PK, name TEXT, username TEXT, created_at TEXT)
-            _db.CreateTable<Conversation>(); // conversations(id TEXT PK, user_id TEXT, started_at TEXT, ended_at TEXT)
-            _db.CreateTable<Message>();      // messages(id TEXT PK, conversation_id TEXT, sender TEXT, message TEXT, sent_at TEXT)
-            _db.CreateTable<Journal>();      // journals(id TEXT PK, user_id TEXT, title TEXT, content TEXT, created_at TEXT, updated_at TEXT)
-            _db.CreateTable<Summary>();      // summary(id TEXT PK, conversation_id TEXT, summary_text TEXT, created_at TEXT)
+        private void CreateTables()
+        {
+            _db.CreateTable<User>();
+            _db.CreateTable<Conversation>();
+            _db.CreateTable<Message>();
+            _db.CreateTable<Journal>();
+            _db.CreateTable<Summary>();
 
             Debug.Log("[DatabaseManager] Tables ensured: users, conversations, messages, journals, summary");
         }
 
-        private void OnApplicationQuit()
+        private void CloseDatabase()
         {
-            // Cleanly close the DB
             _db?.Close();
             _db = null;
         }
+
+        #endregion
     }
 }
