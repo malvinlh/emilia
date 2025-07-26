@@ -910,11 +910,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   backgroundImage: {fileID: 706479134}
+  extraImage: {fileID: 0}
   labelText: {fileID: 0}
   normalBg: {r: 0, g: 0, b: 0, a: 0}
   hoverBg: {r: 0.95686275, g: 0.9647059, b: 0.98039216, a: 0}
   pressedBg: {r: 0.95686275, g: 0.9647059, b: 0.98039216, a: 0}
   disabledBg: {r: 0, g: 0, b: 0, a: 0}
+  normalExtra: {r: 1, g: 1, b: 1, a: 1}
+  hoverExtra: {r: 1, g: 1, b: 1, a: 1}
+  pressedExtra: {r: 1, g: 1, b: 1, a: 1}
+  disabledExtra: {r: 0.5, g: 0.5, b: 0.5, a: 1}
   normalText: {r: 0, g: 0, b: 0, a: 1}
   hoverText: {r: 0.95686275, g: 0.9647059, b: 0.98039216, a: 1}
   pressedText: {r: 1, g: 1, b: 1, a: 1}
@@ -931,8 +936,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: MainMenu
+  _buttonSfx: {fileID: 0}
 --- !u!82 &706479138
 AudioSource:
   m_ObjectHideFlags: 0

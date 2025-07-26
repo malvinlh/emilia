@@ -917,8 +917,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &153333701
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1781,8 +1781,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &316452025
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4164,8 +4164,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &676951385
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6091,8 +6091,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &1152452236
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6539,8 +6539,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &1175598182
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6821,8 +6821,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: 
+  _buttonSfx: {fileID: 0}
 --- !u!114 &1245609457
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9879,8 +9879,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: MainMenu
-  buttonSfx: {fileID: 0}
+  _targetSceneKey: MainMenu
+  _buttonSfx: {fileID: 0}
 --- !u!1 &2115925432
 GameObject:
   m_ObjectHideFlags: 0

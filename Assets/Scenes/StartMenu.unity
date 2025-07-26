@@ -810,8 +810,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d09c362fbf2a3c4a8e60a966b1406de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  targetSceneKey: Login
-  buttonSfx: {fileID: 8300000, guid: de961960ab1eb0345a1fa74897890d47, type: 3}
+  _targetSceneKey: Login
+  _buttonSfx: {fileID: 8300000, guid: de961960ab1eb0345a1fa74897890d47, type: 3}
 --- !u!1001 &2712416862955840696
 PrefabInstance:
   m_ObjectHideFlags: 0

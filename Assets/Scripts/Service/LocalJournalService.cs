@@ -1,24 +1,32 @@
-// LocalJournalService.cs
-using UnityEngine;
 using System;
 using System.Collections;
 using System.Linq;
 using SQLite;
+using UnityEngine;
 using EMILIA.Data;
 
 public class LocalJournalService : MonoBehaviour
 {
+    #region Dependencies
+
     private SQLiteConnection _db;
 
-    void Awake()
+    #endregion
+
+    #region Unity Callbacks
+
+    private void Awake()
     {
         _db = DatabaseManager.Instance.DB;
-        // (optional) enforce foreign‐keys if you need cascades:
         _db.Execute("PRAGMA foreign_keys = ON;");
     }
 
+    #endregion
+
+    #region Queries
+
     /// <summary>
-    /// GET all journals for this user, newest first.
+    /// Retrieves all journals for a given user, ordered by creation date descending.
     /// </summary>
     public IEnumerator FetchUserJournals(
         string userId,
@@ -28,27 +36,33 @@ public class LocalJournalService : MonoBehaviour
     {
         try
         {
-            var items = _db.Table<Journal>()
-                           .Where(j => j.UserId == userId)
-                           .OrderByDescending(j => j.CreatedAt)
-                           .ToArray();
-            onSuccess(items);
+            var journals = _db.Table<Journal>()
+                              .Where(j => j.UserId == userId)
+                              .OrderByDescending(j => j.CreatedAt)
+                              .ToArray();
+
+            onSuccess(journals);
         }
         catch (Exception ex)
         {
             onError?.Invoke(ex.Message);
         }
+
         yield break;
     }
 
+    #endregion
+
+    #region Commands
+
     /// <summary>
-    /// INSERT a new journal row.
+    /// Inserts a new journal entry and returns the created object.
     /// </summary>
     public IEnumerator CreateJournal(
         string userId,
         string title,
         string content,
-        string createdAtIso,            // e.g. "2025-07-25T08:30:00"
+        string createdAtIso,
         Action<Journal> onSuccess,
         Action<string> onError = null
     )
@@ -65,6 +79,7 @@ public class LocalJournalService : MonoBehaviour
                 CreatedAt = timestamp,
                 UpdatedAt = timestamp
             };
+
             _db.Insert(journal);
             onSuccess?.Invoke(journal);
         }
@@ -72,17 +87,18 @@ public class LocalJournalService : MonoBehaviour
         {
             onError?.Invoke(ex.Message);
         }
+
         yield break;
     }
 
     /// <summary>
-    /// UPDATE title, content, and updated_at for an existing journal.
+    /// Updates the title, content, and updated_at timestamp of an existing journal.
     /// </summary>
     public IEnumerator UpdateJournal(
         string journalId,
         string newTitle,
         string newContent,
-        string newUpdatedAt,            // e.g. "2025-07-25T09:00:00"
+        string newUpdatedAtIso,
         Action onSuccess,
         Action<string> onError = null
     )
@@ -98,7 +114,7 @@ public class LocalJournalService : MonoBehaviour
 
             journal.Title     = newTitle;
             journal.Content   = newContent;
-            journal.UpdatedAt = DateTime.Parse(newUpdatedAt);
+            journal.UpdatedAt = DateTime.Parse(newUpdatedAtIso);
 
             _db.Update(journal);
             onSuccess?.Invoke();
@@ -107,11 +123,12 @@ public class LocalJournalService : MonoBehaviour
         {
             onError?.Invoke(ex.Message);
         }
+
         yield break;
     }
 
     /// <summary>
-    /// DELETE a single journal by ID.
+    /// Deletes a journal entry by its ID.
     /// </summary>
     public IEnumerator DeleteJournal(
         string journalId,
@@ -128,6 +145,9 @@ public class LocalJournalService : MonoBehaviour
         {
             onError?.Invoke(ex.Message);
         }
+
         yield break;
     }
+
+    #endregion
 }
