@@ -136,11 +136,11 @@ MonoBehaviour:
   backgroundImage: {fileID: 1629358702399533816}
   extraImage: {fileID: 0}
   labelText: {fileID: 0}
-  normalBg: {r: 0.5019608, g: 0.4, b: 0.8, a: 0}
+  normalBg: {r: 0.5019608, g: 0.4, b: 0.8, a: 0.7058824}
   hoverBg: {r: 0, g: 0, b: 0, a: 1}
   pressedBg: {r: 0, g: 0, b: 0, a: 1}
   disabledBg: {r: 0, g: 0, b: 0, a: 0.2}
-  normalExtra: {r: 1, g: 1, b: 1, a: 1}
+  normalExtra: {r: 0.5019608, g: 0.4, b: 0.8, a: 0.7058824}
   hoverExtra: {r: 1, g: 1, b: 1, a: 1}
   pressedExtra: {r: 1, g: 1, b: 1, a: 1}
   disabledExtra: {r: 0.5, g: 0.5, b: 0.5, a: 1}
@@ -420,7 +420,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b3d0a7a3e4179a240909d8e355fc6d02, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  labelText: {fileID: 4689707420578616278}
+  labelText: {fileID: 0}
+  trashIcon: {fileID: 2136405329637997500}
 --- !u!114 &1659724369190166918
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -440,7 +441,7 @@ MonoBehaviour:
   hoverBg: {r: 0.89411765, g: 0.85490197, b: 0.9529412, a: 1}
   pressedBg: {r: 0.5, g: 0.4, b: 0.8, a: 1}
   disabledBg: {r: 0, g: 0, b: 0, a: 0.2}
-  normalExtra: {r: 1, g: 1, b: 1, a: 0}
+  normalExtra: {r: 0.5019608, g: 0.4, b: 0.8, a: 0}
   hoverExtra: {r: 0.5019608, g: 0.4, b: 0.8, a: 0.7058824}
   pressedExtra: {r: 1, g: 1, b: 1, a: 0}
   disabledExtra: {r: 0.5, g: 0.5, b: 0.5, a: 0}

@@ -1,38 +1,65 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using UnityEngine.EventSystems;
 
 [RequireComponent(typeof(Button))]
-public class HistoryButton : MonoBehaviour
+public class HistoryButton : MonoBehaviour, 
+    IPointerEnterHandler
 {
-    [Header("UI")]
-    [Tooltip("Drag here the TMP Text element inside your button prefab")]
-    [SerializeField] private TextMeshProUGUI labelText;
+    #region Inspector Fields
 
-    private string conversationId;
-    private string pendingLabel;      // 存放要显示的文字
-    private ChatManager chatManager;
+    [Header("UI Elements")]
+    [Tooltip("The text label inside your button prefab")]
+    [SerializeField] private TextMeshProUGUI _labelText;
+
+    [Tooltip("Trash icon to show on hover")]
+    [SerializeField] private GameObject _trashIcon;
+
+    #endregion
+
+    #region Private State
+
+    private string _conversationId;
+    private string _pendingLabel;
+    private ChatManager _chatManager;
+
+    #endregion
+
+    #region Unity Callbacks
 
     private void Awake()
     {
-        // 1) Get ChatManager instance
-        chatManager = FindFirstObjectByType<ChatManager>();
+        _chatManager = FindObjectOfType<ChatManager>();
+        var btn = GetComponent<Button>();
+        btn.onClick.AddListener(OnClicked);
 
-        // 2) Hook click listener
-        GetComponent<Button>().onClick.AddListener(OnClicked);
+        if (_labelText == null)
+            _labelText = GetComponentInChildren<TextMeshProUGUI>();
 
-        // 3) Auto-find labelText if not assigned
-        if (labelText == null)
-            labelText = GetComponentInChildren<TextMeshProUGUI>();
+        // Hide trash icon initially
+        if (_trashIcon == null)
+        {
+            _trashIcon = transform.Find("DeleteButton")?.gameObject;
+            _trashIcon.SetActive(false);
+        }
     }
+
+    private void OnEnable()
+    {
+        // If label was set before activation, apply it now
+        if (!string.IsNullOrEmpty(_pendingLabel))
+            _labelText.text = _pendingLabel;
+    }
+
+    #endregion
+
+    #region Public API
 
     /// <summary>
     /// Called by ChatManager immediately after Instantiate
     /// </summary>
-    public void SetConversationId(string id)
-    {
-        conversationId = id;
-    }
+    public void SetConversationId(string id) => _conversationId = id;
 
     /// <summary>
     /// Called by ChatManager to set the button label.
@@ -40,23 +67,32 @@ public class HistoryButton : MonoBehaviour
     /// </summary>
     public void SetLabel(string text)
     {
-        pendingLabel = text;
-
-        // 如果此时已经是 Active，就马上更新
-        if (labelText != null && isActiveAndEnabled)
-            labelText.text = pendingLabel;
+        _pendingLabel = text;
+        if (_labelText != null && isActiveAndEnabled)
+            _labelText.text = _pendingLabel;
     }
 
-    private void OnEnable()
-    {
-        // 每次从 Inactive → Active，都把 pendingLabel 写给 UI
-        if (labelText != null && !string.IsNullOrEmpty(pendingLabel))
-            labelText.text = pendingLabel;
-    }
+    #endregion
+
+    #region Input Handlers
 
     private void OnClicked()
     {
-        Debug.Log($"[HistoryButton] Clicked, will load convo '{conversationId}'");
-        chatManager.OnHistoryClicked(conversationId);
+        Debug.Log($"[HistoryButton] Loading convo '{_conversationId}'");
+        _chatManager.OnHistoryClicked(_conversationId);
     }
+
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        if (_trashIcon != null)
+            _trashIcon.SetActive(true);
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        if (_trashIcon != null)
+            _trashIcon.SetActive(false);
+    }
+
+    #endregion
 }
