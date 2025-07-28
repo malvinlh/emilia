@@ -1,4 +1,3 @@
-// ChatManager.cs
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -14,36 +13,47 @@ public class ChatManager : MonoBehaviour
     #region Inspector Fields
 
     [Header("Prefabs & UI References")]
-    [SerializeField] private GameObject _userBubblePrefab;
-    [SerializeField] private GameObject _aiBubblePrefab;
-    [SerializeField] private GameObject _historyButtonPrefab;
-    [SerializeField] private Transform _chatContentParent;
-    [SerializeField] private Transform _chatHistoryParent;
+    [SerializeField] private GameObject     _userBubblePrefab;
+    [SerializeField] private GameObject     _aiBubblePrefab;
+    [SerializeField] private GameObject     _historyButtonPrefab;
+    [SerializeField] private Transform      _chatContentParent;
+    [SerializeField] private Transform      _chatHistoryParent;
     [SerializeField] private TMP_InputField _inputField;
-    [SerializeField] private Button _newChatButton;
-    [SerializeField] private Button _sendButton;
+    [SerializeField] private Button         _newChatButton;
+    [SerializeField] private Button         _sendButton;
 
     [Header("Delete Confirmation UI")]
-    [SerializeField] private GameObject _deleteChatSetting;
-    [SerializeField] private Button _deleteYesButton;
-    [SerializeField] private Button _deleteNoButton;
+    [SerializeField] private GameObject     _deleteChatSetting;
+    [SerializeField] private Button         _deleteYesButton;
+    [SerializeField] private Button         _deleteNoButton;
 
     #endregion
 
     #region Constants & Fields
 
-    private const string PrefKeyNickname        = "Nickname";
-    private const int    SnippetMaxLength       = 20;
+    private const string PrefKeyNickname      = "Nickname";
+    private const int    SnippetMaxLength     = 20;
+    private const string TypingPlaceholderId  = "__TYPING__";
     private static readonly Regex ConversationRegex =
         new Regex(@"cv(\d+)$", RegexOptions.Compiled);
 
-    [HideInInspector]
-    public string CurrentUserId;
+    [HideInInspector] public string CurrentUserId;
 
     private string _currentConversationId;
     private string _pendingDeleteId;
     private bool   _isAwaitingResponse;
-    private readonly List<string> _userConvs = new List<string>();
+
+    // In-memory cache of messages per convo (including typing placeholder)
+    private readonly Dictionary<string, List<Message>> _messageCache =
+        new Dictionary<string, List<Message>>();
+
+    // Track which convos are currently awaiting an AI reply
+    private readonly HashSet<string> _isTyping =
+        new HashSet<string>();
+
+    // For generating new convo IDs
+    private readonly List<string> _userConvs =
+        new List<string>();
 
     #endregion
 
@@ -77,7 +87,7 @@ public class ChatManager : MonoBehaviour
         _deleteChatSetting.SetActive(false);
 
         _newChatButton.onClick.AddListener(OnNewChatClicked);
-        _sendButton.onClick.AddListener(OnSendClicked);
+        _sendButton    .onClick.AddListener(OnSendClicked);
         _deleteNoButton.onClick.AddListener(() =>
         {
             _deleteChatSetting.SetActive(false);
@@ -88,7 +98,7 @@ public class ChatManager : MonoBehaviour
 
     #endregion
 
-    #region History Management
+    #region History Sidebar
 
     private void FetchAndPopulateHistory()
     {
@@ -106,15 +116,11 @@ public class ChatManager : MonoBehaviour
 
     private void PopulateHistoryButtons(string[] convIds)
     {
-        // clear existing buttons
         for (int i = _chatHistoryParent.childCount - 1; i >= 0; i--)
             Destroy(_chatHistoryParent.GetChild(i).gameObject);
 
-        // create new ones
         for (int i = 0; i < convIds.Length; i++)
-        {
             SetupHistoryButton(convIds[i], i);
-        }
     }
 
     private void SetupHistoryButton(string convId, int index)
@@ -124,17 +130,12 @@ public class ChatManager : MonoBehaviour
         hb.SetConversationId(convId);
         hb.SetLabel($"Chat {index + 1}");
 
-        // update snippet asynchronously
         StartCoroutine(ServiceManager.Instance.ChatService.FetchFirstMessage(
             convId,
-            firstMsg =>
-            {
-                hb.SetLabel(FormatSnippet(firstMsg, index + 1));
-            },
-            err => Debug.LogWarning($"FetchFirstMessage failed for {convId}: {err}")
+            firstMsg => hb.SetLabel(FormatSnippet(firstMsg, index + 1)),
+            err     => Debug.LogWarning($"FetchFirstMessage failed for {convId}: {err}")
         ));
 
-        // hook delete button
         var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
         if (delBtn != null)
             delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
@@ -153,13 +154,33 @@ public class ChatManager : MonoBehaviour
     {
         _currentConversationId = conversationId;
         ClearChat();
+
+        // If we have cached messages (including placeholder), rebuild immediately
+        if (_messageCache.TryGetValue(conversationId, out var cached))
+            RebuildChatUI(conversationId);
+
+        // Then fetch full history and rebuild again
         StartCoroutine(ServiceManager.Instance.ChatService.FetchConversationWithMessages(
             conversationId,
             CurrentUserId,
             msgs =>
             {
-                foreach (var m in msgs)
-                    CreateBubble(m.Text, m.Sender == CurrentUserId);
+                // overwrite cache
+                _messageCache[conversationId] = new List<Message>(msgs);
+
+                // if still waiting on AI, append placeholder
+                if (_isTyping.Contains(conversationId))
+                {
+                    _messageCache[conversationId].Add(new Message {
+                        Id             = TypingPlaceholderId,
+                        ConversationId = conversationId,
+                        Sender         = "Bot",
+                        Text           = null,
+                        SentAt         = DateTime.UtcNow
+                    });
+                }
+
+                RebuildChatUI(conversationId);
             },
             err => Debug.LogError($"Fetch conversation failed: {err}")
         ));
@@ -167,7 +188,7 @@ public class ChatManager : MonoBehaviour
 
     #endregion
 
-    #region Chat Sending
+    #region Sending & New Conversation
 
     private void OnNewChatClicked()
     {
@@ -187,19 +208,32 @@ public class ChatManager : MonoBehaviour
         if (string.IsNullOrEmpty(_currentConversationId))
             StartNewConversation(text);
         else
-            StartCoroutine(SendUserMessage(text));
+            StartCoroutine(SendUserMessage(text, _currentConversationId));
     }
 
     private void StartNewConversation(string text)
     {
-        _currentConversationId = GenerateConversationId();
-        _userConvs.Add(_currentConversationId);
-        AddHistoryButtonForNew(_currentConversationId, text);
+        var convoId = GenerateConversationId();
+        _currentConversationId = convoId;
+        _userConvs.Add(convoId);
+
+        // seed cache with user's message
+        var first = new Message {
+            Id             = Guid.NewGuid().ToString(),
+            ConversationId = convoId,
+            Sender         = CurrentUserId,
+            Text           = text,
+            SentAt         = DateTime.UtcNow
+        };
+        _messageCache[convoId] = new List<Message> { first };
+
+        AddHistoryButtonForNew(convoId, text);
+        RebuildChatUI(convoId);
 
         StartCoroutine(ServiceManager.Instance.ChatService.CreateConversation(
-            _currentConversationId,
+            convoId,
             CurrentUserId,
-            onSuccess: () => StartCoroutine(SendUserMessage(text)),
+            onSuccess: () => StartCoroutine(SendUserMessage(text, convoId)),
             onError:   err => Debug.LogError($"CreateConversation failed: {err}")
         ));
     }
@@ -230,62 +264,89 @@ public class ChatManager : MonoBehaviour
             delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
     }
 
-    private IEnumerator SendUserMessage(string text)
+    private IEnumerator SendUserMessage(string text, string convoId)
     {
+        // append to cache
+        var userMsg = new Message {
+            Id             = Guid.NewGuid().ToString(),
+            ConversationId = convoId,
+            Sender         = CurrentUserId,
+            Text           = text,
+            SentAt         = DateTime.UtcNow
+        };
+        _messageCache[convoId].Add(userMsg);
+        RebuildChatUI(convoId);
+
         yield return ServiceManager.Instance.ChatService.InsertMessage(
-            _currentConversationId,
+            convoId,
             CurrentUserId,
             text,
-            onSuccess: () => StartCoroutine(HandleAITurn(text)),
+            onSuccess: () => StartCoroutine(HandleAITurn(text, convoId)),
             onError:   err => Debug.LogError($"Insert message failed: {err}")
         );
     }
 
     #endregion
 
-    #region AI Handling
+    #region AI Handling & Typing
 
-    private IEnumerator HandleAITurn(string userMessage)
+    private IEnumerator HandleAITurn(string userMessage, string convoId)
     {
         _isAwaitingResponse = true;
+        _isTyping.Add(convoId);
 
-        var typingGO   = Instantiate(_aiBubblePrefab, _chatContentParent);
-        var typingCtrl = typingGO.GetComponent<ChatBubbleController>();
-        var anim       = StartCoroutine(AnimateTyping(typingCtrl));
+        // insert typing placeholder into cache
+        _messageCache[convoId].Add(new Message {
+            Id             = TypingPlaceholderId,
+            ConversationId = convoId,
+            Sender         = "Bot",
+            Text           = null,
+            SentAt         = DateTime.UtcNow
+        });
+
+        if (_currentConversationId == convoId)
+            RebuildChatUI(convoId);
 
         yield return OllamaService.SendPrompt(userMessage, response =>
         {
-            StopCoroutine(anim);
-            Destroy(typingGO);
-            CreateBubble(response, false);
-            SaveAIMessage(response);
+            _isTyping.Remove(convoId);
+            _messageCache[convoId]
+                .RemoveAll(m => m.Id == TypingPlaceholderId);
+
+            // add real AI message
+            var aiMsg = new Message {
+                Id             = Guid.NewGuid().ToString(),
+                ConversationId = convoId,
+                Sender         = "Bot",
+                Text           = response,
+                SentAt         = DateTime.UtcNow
+            };
+            _messageCache[convoId].Add(aiMsg);
+
+            if (_currentConversationId == convoId)
+                RebuildChatUI(convoId);
+
+            SaveAIMessage(response, convoId);
             _isAwaitingResponse = false;
         });
     }
 
-    private void SaveAIMessage(string response)
-    {        
-        StartCoroutine(
-            ServiceManager.Instance.ChatService.InsertMessage(
-                _currentConversationId,
-                "Bot",
-                response,
-                onSuccess: () =>
-                {
-                    Debug.Log("✅ AI message saved");
-
-                    // Find the button you created earlier for this convo:
-                    var btn = _chatHistoryParent
-                        .GetComponentsInChildren<HistoryButton>()
-                        .FirstOrDefault(h => h.ConversationId == _currentConversationId);
-                    if (btn != null)
-                        btn.transform.SetAsFirstSibling();
-
-                    _isAwaitingResponse = false;
-                },
-                onError: err => Debug.LogError("Save AI message failed: " + err)
-            )
-        );
+    private void SaveAIMessage(string response, string convoId)
+    {
+        StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(
+            convoId,
+            "Bot",
+            response,
+            onSuccess: () =>
+            {
+                Debug.Log("✅ AI message saved");
+                var btn = _chatHistoryParent
+                    .GetComponentsInChildren<HistoryButton>()
+                    .FirstOrDefault(h => h.ConversationId == convoId);
+                if (btn != null) btn.transform.SetAsFirstSibling();
+            },
+            onError: err => Debug.LogError($"Save AI message failed: {err}")
+        ));
     }
 
     #endregion
@@ -300,8 +361,7 @@ public class ChatManager : MonoBehaviour
 
     private void ConfirmDeleteConversation()
     {
-        if (string.IsNullOrEmpty(_pendingDeleteId))
-            return;
+        if (string.IsNullOrEmpty(_pendingDeleteId)) return;
 
         StartCoroutine(ServiceManager.Instance.ChatService.DeleteMessagesForConversation(
             _pendingDeleteId,
@@ -324,7 +384,6 @@ public class ChatManager : MonoBehaviour
                     ClearChat();
                     _currentConversationId = null;
                 }
-
                 _pendingDeleteId = null;
             },
             onError: err => Debug.LogError($"DeleteConversation failed: {err}")
@@ -333,7 +392,26 @@ public class ChatManager : MonoBehaviour
 
     #endregion
 
-    #region Utilities
+    #region UI Rendering
+
+    private void RebuildChatUI(string convoId)
+    {
+        ClearChat();
+
+        foreach (var m in _messageCache[convoId])
+        {
+            if (m.Id == TypingPlaceholderId)
+            {
+                var go   = Instantiate(_aiBubblePrefab, _chatContentParent);
+                var ctrl = go.GetComponent<ChatBubbleController>();
+                StartCoroutine(AnimateTyping(ctrl));
+            }
+            else
+            {
+                CreateBubble(m.Text, m.Sender == CurrentUserId);
+            }
+        }
+    }
 
     private void CreateBubble(string message, bool isUser)
     {
