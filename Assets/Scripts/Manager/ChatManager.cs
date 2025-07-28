@@ -37,6 +37,8 @@ public class ChatManager : MonoBehaviour
     private static readonly Regex ConversationRegex =
         new Regex(@"cv(\d+)$", RegexOptions.Compiled);
 
+    private bool _hasRenderedFirstUserMessage = false;
+
     [HideInInspector] public string CurrentUserId;
 
     private string _currentConversationId;
@@ -203,6 +205,7 @@ public class ChatManager : MonoBehaviour
             return;
 
         _inputField.text = "";
+
         CreateBubble(text, true);
 
         if (string.IsNullOrEmpty(_currentConversationId))
@@ -217,18 +220,9 @@ public class ChatManager : MonoBehaviour
         _currentConversationId = convoId;
         _userConvs.Add(convoId);
 
-        // seed cache with user's message
-        var first = new Message {
-            Id             = Guid.NewGuid().ToString(),
-            ConversationId = convoId,
-            Sender         = CurrentUserId,
-            Text           = text,
-            SentAt         = DateTime.UtcNow
-        };
-        _messageCache[convoId] = new List<Message> { first };
+        _messageCache[convoId] = new List<Message>();
 
         AddHistoryButtonForNew(convoId, text);
-        RebuildChatUI(convoId);
 
         StartCoroutine(ServiceManager.Instance.ChatService.CreateConversation(
             convoId,
@@ -266,7 +260,6 @@ public class ChatManager : MonoBehaviour
 
     private IEnumerator SendUserMessage(string text, string convoId)
     {
-        // append to cache
         var userMsg = new Message {
             Id             = Guid.NewGuid().ToString(),
             ConversationId = convoId,
@@ -274,8 +267,8 @@ public class ChatManager : MonoBehaviour
             Text           = text,
             SentAt         = DateTime.UtcNow
         };
-        _messageCache[convoId].Add(userMsg);
-        RebuildChatUI(convoId);
+
+        _messageCache[convoId].Add(userMsg); // cache user message
 
         yield return ServiceManager.Instance.ChatService.InsertMessage(
             convoId,
@@ -408,7 +401,8 @@ public class ChatManager : MonoBehaviour
             }
             else
             {
-                CreateBubble(m.Text, m.Sender == CurrentUserId);
+                bool isUser = m.Sender == CurrentUserId;
+                CreateBubble(m.Text, isUser);
             }
         }
     }
