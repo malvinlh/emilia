@@ -264,14 +264,28 @@ public class ChatManager : MonoBehaviour
     }
 
     private void SaveAIMessage(string response)
-    {
-        StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(
-            _currentConversationId,
-            "Bot",
-            response,
-            onSuccess: () => Debug.Log("✅ AI message saved"),
-            onError:   err => Debug.LogError($"Save AI message failed: {err}")
-        ));
+    {        
+        StartCoroutine(
+            ServiceManager.Instance.ChatService.InsertMessage(
+                _currentConversationId,
+                "Bot",
+                response,
+                onSuccess: () =>
+                {
+                    Debug.Log("✅ AI message saved");
+
+                    // Find the button you created earlier for this convo:
+                    var btn = _chatHistoryParent
+                        .GetComponentsInChildren<HistoryButton>()
+                        .FirstOrDefault(h => h.ConversationId == _currentConversationId);
+                    if (btn != null)
+                        btn.transform.SetAsFirstSibling();
+
+                    _isAwaitingResponse = false;
+                },
+                onError: err => Debug.LogError("Save AI message failed: " + err)
+            )
+        );
     }
 
     #endregion

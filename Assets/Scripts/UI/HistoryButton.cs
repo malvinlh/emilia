@@ -4,8 +4,7 @@ using TMPro;
 using UnityEngine.EventSystems;
 
 [RequireComponent(typeof(Button))]
-public class HistoryButton : MonoBehaviour, 
-    IPointerEnterHandler
+public class HistoryButton : MonoBehaviour, IPointerEnterHandler
 {
     #region Inspector Fields
 
@@ -23,6 +22,12 @@ public class HistoryButton : MonoBehaviour,
     private string _conversationId;
     private string _pendingLabel;
     private ChatManager _chatManager;
+
+    #endregion
+
+    #region Public State
+    
+    public string ConversationId => _conversationId;
 
     #endregion
 

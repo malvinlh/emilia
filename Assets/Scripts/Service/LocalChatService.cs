@@ -144,15 +144,24 @@ public class LocalChatService : MonoBehaviour
     {
         try
         {
+            var now = DateTime.UtcNow;
+
             var msg = new Message
             {
-                Id = Guid.NewGuid().ToString(),
+                Id             = Guid.NewGuid().ToString(),
                 ConversationId = conversationId,
-                Sender = sender,
-                Text = content,
-                SentAt = DateTime.UtcNow
+                Sender         = sender,
+                Text           = content,
+                SentAt         = now
             };
             _db.Insert(msg);
+
+            _db.Execute(
+                "UPDATE conversations SET started_at = ? WHERE id = ?",
+                now,
+                conversationId
+            );
+
             onSuccess?.Invoke();
         }
         catch (Exception ex)
