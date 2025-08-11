@@ -33,6 +33,9 @@ namespace EMILIA.Data
 
         [Column("ended_at")]
         public DateTime? EndedAt { get; set; }
+
+        [Column("title")]
+        public string Title { get; set; }
     }
 
     [Table("messages")]

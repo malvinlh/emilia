@@ -31,13 +31,12 @@ public class ChatManager : MonoBehaviour
 
     #region Constants & Fields
 
-    private const string PrefKeyNickname      = "Nickname";
-    private const int    SnippetMaxLength     = 20;
-    private const string TypingPlaceholderId  = "__TYPING__";
+    private const string PrefKeyNickname     = "Nickname";
+    private const int    SnippetMaxLength    = 20;
+    private const string TypingPlaceholderId = "__TYPING__";
+    private const string NewChatLabel        = "New Chat";
     private static readonly Regex ConversationRegex =
         new Regex(@"cv(\d+)$", RegexOptions.Compiled);
-
-    private bool _hasRenderedFirstUserMessage = false;
 
     [HideInInspector] public string CurrentUserId;
 
@@ -45,17 +44,22 @@ public class ChatManager : MonoBehaviour
     private string _pendingDeleteId;
     private bool   _isAwaitingResponse;
 
-    // In-memory cache of messages per convo (including typing placeholder)
+    // Cache pesan per percakapan (termasuk placeholder)
     private readonly Dictionary<string, List<Message>> _messageCache =
         new Dictionary<string, List<Message>>();
 
-    // Track which convos are currently awaiting an AI reply
-    private readonly HashSet<string> _isTyping =
-        new HashSet<string>();
+    // Track convo yang sedang menunggu reply AI
+    private readonly HashSet<string> _isTyping = new HashSet<string>();
 
-    // For generating new convo IDs
-    private readonly List<string> _userConvs =
-        new List<string>();
+    // Untuk generate ID baru
+    private readonly List<string> _userConvs = new List<string>();
+
+    // Topic guards & cache (session-level)
+    private readonly Dictionary<string, string> _topicCache     = new Dictionary<string, string>();
+    private readonly HashSet<string>            _topicRequested = new HashSet<string>(); // in-flight / done
+
+    // Summary guard: sudah diringkas sampai pair ke-berapa per convo
+    private readonly Dictionary<string, int> _lastSummarizedPairCount = new Dictionary<string, int>();
 
     #endregion
 
@@ -74,11 +78,21 @@ public class ChatManager : MonoBehaviour
 
     #endregion
 
-    #region Initialization
+    #region Initialization & Session
 
     private void LoadCurrentUser()
     {
-        CurrentUserId = PlayerPrefs.GetString(PrefKeyNickname, "");
+        var nick = PlayerPrefs.GetString(PrefKeyNickname, "");
+        if (string.IsNullOrEmpty(CurrentUserId))
+        {
+            CurrentUserId = nick;
+        }
+        else if (CurrentUserId != nick)
+        {
+            OnUserChanged(nick);
+            return;
+        }
+
         Debug.Log($"[ChatManager] CurrentUserId = '{CurrentUserId}'");
         _currentConversationId = null;
         ClearChat();
@@ -96,6 +110,36 @@ public class ChatManager : MonoBehaviour
             _pendingDeleteId = null;
         });
         _deleteYesButton.onClick.AddListener(ConfirmDeleteConversation);
+    }
+
+    /// <summary> Dipanggil saat user berganti (logout/login). </summary>
+    public void OnUserChanged(string newUserId)
+    {
+        if (string.Equals(CurrentUserId, newUserId, StringComparison.Ordinal)) return;
+        CurrentUserId = newUserId;
+
+        _messageCache.Clear();
+        _isTyping.Clear();
+        _topicCache.Clear();
+        _topicRequested.Clear();
+        _lastSummarizedPairCount.Clear();
+        _userConvs.Clear();
+        _currentConversationId = null;
+        ClearChat();
+
+        FetchAndPopulateHistory();
+    }
+
+    private void ResetSessionState()
+    {
+        _messageCache.Clear();
+        _isTyping.Clear();
+        _topicCache.Clear();
+        _topicRequested.Clear();
+        _lastSummarizedPairCount.Clear();
+        _userConvs.Clear();
+        _currentConversationId = null;
+        ClearChat();
     }
 
     #endregion
@@ -130,13 +174,40 @@ public class ChatManager : MonoBehaviour
         var go = Instantiate(_historyButtonPrefab, _chatHistoryParent);
         var hb = go.GetComponent<HistoryButton>();
         hb.SetConversationId(convId);
-        hb.SetLabel($"Chat {index + 1}");
 
-        StartCoroutine(ServiceManager.Instance.ChatService.FetchFirstMessage(
-            convId,
-            firstMsg => hb.SetLabel(FormatSnippet(firstMsg, index + 1)),
-            err     => Debug.LogWarning($"FetchFirstMessage failed for {convId}: {err}")
-        ));
+        var placeholderText = $"Chat {index + 1}";
+        hb.SetLabel(placeholderText);
+
+        // 0) Pakai title dari DB jika sudah ada
+        var existingTitle = ServiceManager.Instance.ChatService.GetConversationTitle(convId);
+        if (!string.IsNullOrWhiteSpace(existingTitle))
+        {
+            _topicCache[convId] = existingTitle; // seed cache session
+            hb.SetLabel(existingTitle);
+        }
+        else if (_topicCache.TryGetValue(convId, out var sessionTopic) && !string.IsNullOrWhiteSpace(sessionTopic))
+        {
+            hb.SetLabel(sessionTopic);
+        }
+
+        // 1) Untuk history lama: kalau ada sepasang user+bot dan title belum ada di DB, generate topic SEKALI.
+        if (string.IsNullOrWhiteSpace(existingTitle))
+        {
+            StartCoroutine(ServiceManager.Instance.ChatService.FetchConversationWithMessages(
+                convId,
+                CurrentUserId,
+                msgs =>
+                {
+                    var firstUser = msgs.FirstOrDefault(m => m.Sender != "Bot");
+                    var firstBot  = msgs.FirstOrDefault(m => m.Sender == "Bot");
+                    if (firstUser != null && firstBot != null)
+                        TryGenerateTopicOnce(convId, firstUser.Text, firstBot.Text, hb);
+                    else
+                        hb.SetLabel(NewChatLabel); // belum ada balasan bot → tampil "New Chat"
+                },
+                err => Debug.LogWarning($"Fetch conv for topic failed: {err}")
+            ));
+        }
 
         var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
         if (delBtn != null)
@@ -157,20 +228,16 @@ public class ChatManager : MonoBehaviour
         _currentConversationId = conversationId;
         ClearChat();
 
-        // If we have cached messages (including placeholder), rebuild immediately
         if (_messageCache.TryGetValue(conversationId, out var cached))
             RebuildChatUI(conversationId);
 
-        // Then fetch full history and rebuild again
         StartCoroutine(ServiceManager.Instance.ChatService.FetchConversationWithMessages(
             conversationId,
             CurrentUserId,
             msgs =>
             {
-                // overwrite cache
                 _messageCache[conversationId] = new List<Message>(msgs);
 
-                // if still waiting on AI, append placeholder
                 if (_isTyping.Contains(conversationId))
                 {
                     _messageCache[conversationId].Add(new Message {
@@ -251,7 +318,11 @@ public class ChatManager : MonoBehaviour
         var go = Instantiate(_historyButtonPrefab, _chatHistoryParent);
         var hb = go.GetComponent<HistoryButton>();
         hb.SetConversationId(convId);
-        hb.SetLabel(FormatSnippet(initialMsg, 1));
+
+        // Tampilkan "New Chat" saat belum ada balasan bot
+        hb.SetLabel(NewChatLabel);
+        // Pastikan tombol baru langsung di paling atas
+        hb.transform.SetAsFirstSibling();
 
         var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
         if (delBtn != null)
@@ -268,7 +339,7 @@ public class ChatManager : MonoBehaviour
             SentAt         = DateTime.UtcNow
         };
 
-        _messageCache[convoId].Add(userMsg); // cache user message
+        _messageCache[convoId].Add(userMsg);
 
         yield return ServiceManager.Instance.ChatService.InsertMessage(
             convoId,
@@ -288,7 +359,6 @@ public class ChatManager : MonoBehaviour
         _isAwaitingResponse = true;
         _isTyping.Add(convoId);
 
-        // insert typing placeholder into cache
         _messageCache[convoId].Add(new Message {
             Id             = TypingPlaceholderId,
             ConversationId = convoId,
@@ -300,28 +370,53 @@ public class ChatManager : MonoBehaviour
         if (_currentConversationId == convoId)
             RebuildChatUI(convoId);
 
-        yield return OllamaService.SendPrompt(userMessage, response =>
-        {
-            _isTyping.Remove(convoId);
-            _messageCache[convoId]
-                .RemoveAll(m => m.Id == TypingPlaceholderId);
+        // === /chat ===
+        yield return ServiceManager.Instance.ChatApi.SendPrompt(
+            username: CurrentUserId,
+            question: userMessage,
+            audioBytes: null,
+            audioFileName: null,
+            audioMime: null,
+            onSuccess: response =>
+            {
+                _isTyping.Remove(convoId);
+                _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 
-            // add real AI message
-            var aiMsg = new Message {
-                Id             = Guid.NewGuid().ToString(),
-                ConversationId = convoId,
-                Sender         = "Bot",
-                Text           = response,
-                SentAt         = DateTime.UtcNow
-            };
-            _messageCache[convoId].Add(aiMsg);
+                var aiMsg = new Message {
+                    Id             = Guid.NewGuid().ToString(),
+                    ConversationId = convoId,
+                    Sender         = "Bot",
+                    Text           = response,
+                    SentAt         = DateTime.UtcNow
+                };
+                _messageCache[convoId].Add(aiMsg);
 
-            if (_currentConversationId == convoId)
-                RebuildChatUI(convoId);
+                if (_currentConversationId == convoId)
+                    RebuildChatUI(convoId);
 
-            SaveAIMessage(response, convoId);
-            _isAwaitingResponse = false;
-        });
+                SaveAIMessage(response, convoId);
+                _isAwaitingResponse = false;
+
+                Debug.LogError("generate topic");
+
+                // === /topic sekali, lalu simpan ke DB ===
+                TryGenerateTopicOnce(convoId, userMessage, response);
+
+                Debug.LogError("summarize every 2 pairs");
+
+                // === /summary tiap 2,4,6,... pair ===
+                TrySummarizeEveryTwoPairs(convoId);
+            },
+            onError: err =>
+            {
+                Debug.LogError($"Chat API error: {err}");
+                _isTyping.Remove(convoId);
+                _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
+                _isAwaitingResponse = false;
+                if (_currentConversationId == convoId)
+                    RebuildChatUI(convoId);
+            }
+        );
     }
 
     private void SaveAIMessage(string response, string convoId)
@@ -332,13 +427,131 @@ public class ChatManager : MonoBehaviour
             response,
             onSuccess: () =>
             {
-                Debug.Log("✅ AI message saved");
                 var btn = _chatHistoryParent
                     .GetComponentsInChildren<HistoryButton>()
                     .FirstOrDefault(h => h.ConversationId == convoId);
                 if (btn != null) btn.transform.SetAsFirstSibling();
             },
             onError: err => Debug.LogError($"Save AI message failed: {err}")
+        ));
+    }
+
+    /// <summary>
+    /// Minta topic ke /topic hanya SEKALI per conversation.
+    /// - Cek DB dulu (title). Jika ada → pakai & cache.
+    /// - Kalau belum ada dan belum in-flight → request; simpan ke DB + cache.
+    /// </summary>
+    private void TryGenerateTopicOnce(string convoId, string userText, string botText, HistoryButton hb = null)
+    {
+        if (string.IsNullOrWhiteSpace(userText) || string.IsNullOrWhiteSpace(botText))
+            return;
+
+        // 1) Cek DB — kalau sudah ada title, jangan request lagi
+        var dbTitle = ServiceManager.Instance.ChatService.GetConversationTitle(convoId);
+        if (!string.IsNullOrWhiteSpace(dbTitle))
+        {
+            _topicCache[convoId] = dbTitle;
+            (hb ?? _chatHistoryParent.GetComponentsInChildren<HistoryButton>(true)
+                                     .FirstOrDefault(h => h.ConversationId == convoId))
+                                     ?.SetLabel(dbTitle);
+            return;
+        }
+
+        // 2) Cek cache/guard session
+        if (_topicCache.ContainsKey(convoId) || _topicRequested.Contains(convoId))
+            return;
+
+        _topicRequested.Add(convoId);
+
+        StartCoroutine(ServiceManager.Instance.TopicApi.GetTopic(
+            userText,
+            botText,
+            onSuccess: topic =>
+            {
+                _topicRequested.Remove(convoId);
+                if (!string.IsNullOrWhiteSpace(topic))
+                {
+                    _topicCache[convoId] = topic;
+
+                    // Persist ke DB
+                    ServiceManager.Instance.ChatService.UpdateConversationTitle(convoId, topic);
+
+                    // Update UI
+                    (hb ?? _chatHistoryParent.GetComponentsInChildren<HistoryButton>(true)
+                                             .FirstOrDefault(h => h.ConversationId == convoId))
+                                             ?.SetLabel(topic);
+                }
+            },
+            onError: err =>
+            {
+                _topicRequested.Remove(convoId);
+                Debug.LogWarning($"[TopicOnce] {convoId}: {err}");
+            }
+        ));
+    }
+
+    /// <summary>
+    /// Hitung pasangan user→bot dari URUTAN pesan (independen dari CurrentUserId).
+    /// Tembak /summary setiap kali jumlah pasangan menjadi genap (2,4,6,...).
+    /// </summary>
+    private void TrySummarizeEveryTwoPairs(string convoId)
+    {
+        Debug.LogError($"[SUMMARY] Checking convo '{convoId}' for pairs...");
+
+        if (!_messageCache.TryGetValue(convoId, out var msgs) || msgs == null) return;
+
+        // Urutkan by waktu
+        var ordered = msgs.OrderBy(m => m.SentAt).ToList();
+
+        int pairs = 0;
+        bool waitingForBot = false;
+
+        foreach (var m in ordered)
+        {
+            // Anggap semua selain "Bot" = pesan user
+            if (m.Sender == "Bot")
+            {
+                if (waitingForBot) { pairs++; waitingForBot = false; }
+            }
+            else
+            {
+                waitingForBot = true;
+            }
+        }
+
+        Debug.LogError($"[SUMMARY] {convoId} pairs={pairs}");
+
+        // Tembak hanya saat genap: 2,4,6,...
+        if (pairs < 2 || (pairs % 2 != 0)) return;
+
+        int last = _lastSummarizedPairCount.TryGetValue(convoId, out var v) ? v : 0;
+        if (pairs == last) return; // sudah disummary untuk jumlah ini
+
+        _lastSummarizedPairCount[convoId] = pairs;
+
+        // Pastikan ServiceManager.SummaryApi tidak null
+        if (ServiceManager.Instance?.SummaryApi == null)
+        {
+            Debug.LogError("[SUMMARY] SummaryApi belum terinisialisasi di ServiceManager.");
+            return;
+        }
+
+        StartCoroutine(ServiceManager.Instance.SummaryApi.RequestSummary(
+            convoId,
+            onSuccess: text =>
+            {
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    // simpan ke tabel summary, TANPA render ke UI
+                    StartCoroutine(ServiceManager.Instance.ChatService.InsertSummary(
+                        convoId,
+                        text,
+                        onSuccess: () => Debug.LogWarning($"[SUMMARY] saved for {convoId}"),
+                        onError:   err => Debug.LogWarning($"[SUMMARY] save failed: {err}")
+                    ));
+                }
+            },
+            onError:   err  => Debug.LogWarning($"[SUMMARY] ({convoId}) ERROR: {err}")
         ));
     }
 
@@ -401,7 +614,7 @@ public class ChatManager : MonoBehaviour
             }
             else
             {
-                bool isUser = m.Sender == CurrentUserId;
+                bool isUser = m.Sender != "Bot";
                 CreateBubble(m.Text, isUser);
             }
         }

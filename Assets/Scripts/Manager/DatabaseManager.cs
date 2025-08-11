@@ -77,7 +77,13 @@ namespace EMILIA.Data
 
         private static string GetDatabasePath()
         {
-            return Path.Combine(Application.persistentDataPath, DatabaseFileName);
+            string folderPath = @"D:\Emilia\AI";
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+
+            return Path.Combine(folderPath, DatabaseFileName);
         }
 
         private static SQLiteConnection CreateConnection(string path)

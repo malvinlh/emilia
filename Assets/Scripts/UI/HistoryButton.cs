@@ -77,6 +77,13 @@ public class HistoryButton : MonoBehaviour, IPointerEnterHandler
             _labelText.text = _pendingLabel;
     }
 
+    public string GetCurrentLabel()
+    {
+        if (_labelText != null && !string.IsNullOrEmpty(_labelText.text))
+            return _labelText.text;
+        return _pendingLabel;
+    }
+
     #endregion
 
     #region Input Handlers

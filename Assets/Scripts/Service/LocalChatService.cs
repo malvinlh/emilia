@@ -19,6 +19,24 @@ public class LocalChatService : MonoBehaviour
     {
         _db = DatabaseManager.Instance.DB;
         _db.Execute("PRAGMA foreign_keys = ON;");
+
+        // === MIGRASI: tambah kolom title jika belum ada ===
+        EnsureTitleColumn();
+    }
+
+    private void EnsureTitleColumn()
+    {
+        try
+        {
+            // Akan throw "duplicate column name: title" jika sudah ada → aman diabaikan
+            _db.Execute("ALTER TABLE conversations ADD COLUMN title TEXT;");
+        }
+        catch (Exception ex)
+        {
+            // Abaikan kalau kolom sudah ada, log jika error lain
+            if (!ex.Message.ToLower().Contains("duplicate column name"))
+                Debug.LogWarning($"[LocalChatService] EnsureTitleColumn warning: {ex.Message}");
+        }
     }
 
     #endregion
@@ -53,26 +71,26 @@ public class LocalChatService : MonoBehaviour
     /// <summary>
     /// Retrieves the very first (oldest) message text for a conversation.
     /// </summary>
-    public IEnumerator FetchFirstMessage(
-        string conversationId,
-        Action<string> onResult,
-        Action<string> onError = null
-    )
-    {
-        try
-        {
-            var first = _db.Table<Message>()
-                           .Where(m => m.ConversationId == conversationId)
-                           .OrderBy(m => m.SentAt)
-                           .FirstOrDefault();
-            onResult(first?.Text ?? "");
-        }
-        catch (Exception ex)
-        {
-            onError?.Invoke(ex.Message);
-        }
-        yield break;
-    }
+    // public IEnumerator FetchFirstMessage(
+    //     string conversationId,
+    //     Action<string> onResult,
+    //     Action<string> onError = null
+    // )
+    // {
+    //     try
+    //     {
+    //         var first = _db.Table<Message>()
+    //                        .Where(m => m.ConversationId == conversationId)
+    //                        .OrderBy(m => m.SentAt)
+    //                        .FirstOrDefault();
+    //         onResult(first?.Text ?? "");
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         onError?.Invoke(ex.Message);
+    //     }
+    //     yield break;
+    // }
 
     /// <summary>
     /// Retrieves all messages for a conversation, ordered by sent time ascending.
@@ -99,9 +117,56 @@ public class LocalChatService : MonoBehaviour
         yield break;
     }
 
+    /// <summary>
+    /// NEW: Ambil title yang tersimpan untuk percakapan.
+    /// </summary>
+    public string GetConversationTitle(string conversationId)
+    {
+        try
+        {
+            var c = _db.Find<Conversation>(conversationId);
+            return c?.Title;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[LocalChatService] GetConversationTitle: {ex.Message}");
+            return null;
+        }
+    }
+
     #endregion
 
     #region Commands
+
+    // LocalChatService.cs (tambahkan di #region Commands)
+    public IEnumerator InsertSummary(
+        string conversationId,
+        string summaryText,
+        Action onSuccess = null,
+        Action<string> onError = null
+    )
+    {
+        Debug.LogError($"[LocalChatService] InsertSummary: {conversationId}");
+        try
+        {
+            var row = new Summary
+            {
+                Id = Guid.NewGuid().ToString(),
+                ConversationId = conversationId,
+                SummaryText = summaryText ?? "",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            // INSERT
+            _db.Insert(row);
+            onSuccess?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            onError?.Invoke(ex.Message);
+        }
+        yield break;
+    }
 
     /// <summary>
     /// Inserts a new conversation record.
@@ -119,7 +184,8 @@ public class LocalChatService : MonoBehaviour
             {
                 Id = conversationId,
                 UserId = userId,
-                StartedAt = DateTime.UtcNow
+                StartedAt = DateTime.UtcNow,
+                Title = null
             };
             _db.Insert(convo);
             onSuccess?.Invoke();
@@ -156,6 +222,7 @@ public class LocalChatService : MonoBehaviour
             };
             _db.Insert(msg);
 
+            // dipakai sebagai "last activity"
             _db.Execute(
                 "UPDATE conversations SET started_at = ? WHERE id = ?",
                 now,
@@ -169,6 +236,21 @@ public class LocalChatService : MonoBehaviour
             onError?.Invoke(ex.Message);
         }
         yield break;
+    }
+
+    /// <summary>
+    /// NEW: Update title untuk conversation (sinkron, ringan).
+    /// </summary>
+    public void UpdateConversationTitle(string conversationId, string title)
+    {
+        try
+        {
+            _db.Execute("UPDATE conversations SET title = ? WHERE id = ?", title, conversationId);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[LocalChatService] UpdateConversationTitle: {ex.Message}");
+        }
     }
 
     /// <summary>
