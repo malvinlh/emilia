@@ -17,6 +17,7 @@ public class ServiceManager : MonoBehaviour
     [HideInInspector] public APITopicService TopicApi { get; private set; }
     [HideInInspector] public APISummaryService SummaryApi { get; private set; }
     [HideInInspector] public APIAgenticService AgenticApi { get; private set; }
+    [HideInInspector] public APITranscribeService TranscribeApi { get; private set; }
 
     #endregion
 
@@ -56,6 +57,7 @@ public class ServiceManager : MonoBehaviour
         TopicApi = gameObject.AddComponent<APITopicService>();
         SummaryApi = gameObject.AddComponent<APISummaryService>();
         AgenticApi = gameObject.AddComponent<APIAgenticService>();
+        TranscribeApi = gameObject.AddComponent<APITranscribeService>();
     }
 
     #endregion

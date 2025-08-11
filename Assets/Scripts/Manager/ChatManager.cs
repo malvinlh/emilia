@@ -68,6 +68,8 @@ public class ChatManager : MonoBehaviour
     private readonly HashSet<string>            _topicRequested = new HashSet<string>();
     private readonly Dictionary<string, int>    _lastSummarizedPairCount = new Dictionary<string, int>();
 
+    [SerializeField] private Animator anim;
+
     #endregion
 
     #region Unity
@@ -183,6 +185,8 @@ public class ChatManager : MonoBehaviour
     private void EnterReasoningMode()
     {
         _isReasoningMode = true;
+
+        anim.SetBool("isThinking", true);
         ApplyReasoningVisibilityByMode(); // show/hide GO hanya saat toggle
         UpdateReasoningInteractable();
     }
@@ -190,6 +194,8 @@ public class ChatManager : MonoBehaviour
     private void ExitReasoningMode()
     {
         _isReasoningMode = false;
+
+        anim.SetBool("isThinking", false);
         ApplyReasoningVisibilityByMode();
         UpdateReasoningInteractable();
     }
@@ -231,70 +237,33 @@ public class ChatManager : MonoBehaviour
     /// </summary>
     private void OnAudioSaved(string filePath)
     {
-        if (!File.Exists(filePath))
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
         {
             Debug.LogWarning($"Audio file not found: {filePath}");
             return;
         }
-        StartCoroutine(UploadAudioAndFillInput(filePath));
+        // Transcribe → hasil ke input field (draft)
+        StartCoroutine(TranscribeAndFillInput(filePath));
     }
 
-    private IEnumerator UploadAudioAndFillInput(string filePath)
+    private IEnumerator TranscribeAndFillInput(string filePath)
     {
-        SetAwaiting(true);
-
-        byte[] bytes  = File.ReadAllBytes(filePath);
-        string fname  = Path.GetFileName(filePath);
-        const string mime = "audio/wav";
-
-        if (_isReasoningMode)
-        {
-            // === /agentic ===
-            // NOTE: pastikan AgenticApi.Send mendukung audio mirip ChatApi.SendPrompt
-            yield return ServiceManager.Instance.AgenticApi.Send(
-                userId:    CurrentUserId,
-                username:  CurrentUserId,
-                question:  null,
-                audioBytes: bytes,
-                audioFileName: fname,
-                audioMime: mime,
-                onSuccess: res =>
-                {
-                    // ambil teks yang paling relevan untuk dijadikan draft
-                    var draft = !string.IsNullOrWhiteSpace(res.response)
-                        ? res.response
-                        : (!string.IsNullOrWhiteSpace(res.reasoning) ? res.reasoning : "");
-                    _inputField.text = draft ?? "";
-                    SetAwaiting(false);
-                },
-                onError: err =>
-                {
-                    Debug.LogError($"Agentic audio error: {err}");
-                    SetAwaiting(false);
-                }
-            );
-        }
-        else
-        {
-            // === /chat ===
-            yield return ServiceManager.Instance.ChatApi.SendPrompt(
-                username: CurrentUserId,
-                question: null,          // biarkan kosong; server akan pakai audio
-                audioBytes: bytes,
-                audioFileName: fname,
-                audioMime: mime,
-                onSuccess: responseText =>
-                {
-                    _inputField.text = responseText ?? "";
-                    SetAwaiting(false);
-                },
-                onError: err =>
-                {
-                    Debug.LogError($"Chat audio error: {err}");
-                    SetAwaiting(false);
-                }
-            );
-        }
+        SetAwaiting(true); // kunci UI sementara (ikon reasoning tetap visible tapi non-interactable)
+        yield return ServiceManager.Instance.TranscribeApi.TranscribeFile(
+            filePath,
+            onSuccess: text =>
+            {
+                _inputField.text = text ?? "";
+                // fokuskan caret di akhir supaya siap diedit/Send
+                _inputField.caretPosition = _inputField.text.Length;
+                SetAwaiting(false);
+            },
+            onError: err =>
+            {
+                Debug.LogError($"Transcribe error: {err}");
+                SetAwaiting(false);
+            }
+        );
     }
 
     #endregion

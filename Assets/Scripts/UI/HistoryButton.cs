@@ -4,34 +4,25 @@ using TMPro;
 using UnityEngine.EventSystems;
 
 [RequireComponent(typeof(Button))]
-public class HistoryButton : MonoBehaviour, IPointerEnterHandler
+public class HistoryButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
 {
-    #region Inspector Fields
-
     [Header("UI Elements")]
-    [Tooltip("The text label inside your button prefab")]
     [SerializeField] private TextMeshProUGUI _labelText;
-
-    [Tooltip("Trash icon to show on hover")]
     [SerializeField] private GameObject _trashIcon;
 
-    #endregion
+    [Header("Display Clamp (UI-only)")]
+    [Tooltip("Jumlah maksimal karakter yang ditampilkan di label history (UI saja).")]
+    [SerializeField] private int _maxLabelChars = 35;
 
-    #region Private State
+    [Tooltip("Suffix yang dipakai saat dipotong.")]
+    [SerializeField] private string _ellipsis = "…";
 
     private string _conversationId;
-    private string _pendingLabel;
+    private string _fullLabel;    // teks asli (tidak terpotong)
+    private string _pendingLabel; // buffer kalau GO belum aktif
     private ChatManager _chatManager;
 
-    #endregion
-
-    #region Public State
-    
     public string ConversationId => _conversationId;
-
-    #endregion
-
-    #region Unity Callbacks
 
     private void Awake()
     {
@@ -42,51 +33,39 @@ public class HistoryButton : MonoBehaviour, IPointerEnterHandler
         if (_labelText == null)
             _labelText = GetComponentInChildren<TextMeshProUGUI>();
 
-        // Hide trash icon initially
         if (_trashIcon == null)
-        {
             _trashIcon = transform.Find("DeleteButton")?.gameObject;
+
+        if (_trashIcon != null)
             _trashIcon.SetActive(false);
-        }
     }
 
     private void OnEnable()
     {
-        // If label was set before activation, apply it now
         if (!string.IsNullOrEmpty(_pendingLabel))
-            _labelText.text = _pendingLabel;
+        {
+            _fullLabel = _pendingLabel;
+            ApplyDisplayClamp(_fullLabel);
+        }
     }
 
-    #endregion
-
-    #region Public API
-
-    /// <summary>
-    /// Called by ChatManager immediately after Instantiate
-    /// </summary>
     public void SetConversationId(string id) => _conversationId = id;
 
-    /// <summary>
-    /// Called by ChatManager to set the button label.
-    /// May be invoked before this GameObject is Active.
-    /// </summary>
     public void SetLabel(string text)
     {
-        _pendingLabel = text;
+        _pendingLabel = text ?? string.Empty;
+        _fullLabel = _pendingLabel;
+
         if (_labelText != null && isActiveAndEnabled)
-            _labelText.text = _pendingLabel;
+            ApplyDisplayClamp(_fullLabel);
     }
 
     public string GetCurrentLabel()
     {
-        if (_labelText != null && !string.IsNullOrEmpty(_labelText.text))
-            return _labelText.text;
-        return _pendingLabel;
+        if (!string.IsNullOrEmpty(_fullLabel)) return _fullLabel;
+        if (!string.IsNullOrEmpty(_pendingLabel)) return _pendingLabel;
+        return _labelText != null ? _labelText.text : string.Empty;
     }
-
-    #endregion
-
-    #region Input Handlers
 
     private void OnClicked()
     {
@@ -106,5 +85,16 @@ public class HistoryButton : MonoBehaviour, IPointerEnterHandler
             _trashIcon.SetActive(false);
     }
 
-    #endregion
+    private void ApplyDisplayClamp(string fullText)
+    {
+        if (_labelText == null) return;
+        _labelText.text = ClampByLength(fullText, _maxLabelChars, _ellipsis);
+    }
+
+    private static string ClampByLength(string input, int maxChars, string ellipsis)
+    {
+        if (string.IsNullOrEmpty(input) || maxChars <= 0) return string.Empty;
+        if (input.Length <= maxChars) return input;
+        return input.Substring(0, maxChars) + (string.IsNullOrEmpty(ellipsis) ? "" : ellipsis);
+    }
 }
