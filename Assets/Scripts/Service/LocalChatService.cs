@@ -1,3 +1,4 @@
+// LocalChatService.cs
 using System;
 using System.Collections;
 using System.Linq;
@@ -7,20 +8,17 @@ using EMILIA.Data;
 
 public class LocalChatService : MonoBehaviour
 {
-    #region Dependencies
+    #region Fields & Setup
 
+    private const string LogTag = "[LocalChatService]";
     private SQLiteConnection _db;
-
-    #endregion
-
-    #region Unity Callbacks
 
     private void Awake()
     {
         _db = DatabaseManager.Instance.DB;
         _db.Execute("PRAGMA foreign_keys = ON;");
 
-        // === MIGRASI: tambah kolom title jika belum ada ===
+        // Migrasi ringan: tambah kolom title jika belum ada
         EnsureTitleColumn();
     }
 
@@ -28,14 +26,14 @@ public class LocalChatService : MonoBehaviour
     {
         try
         {
-            // Akan throw "duplicate column name: title" jika sudah ada → aman diabaikan
             _db.Execute("ALTER TABLE conversations ADD COLUMN title TEXT;");
         }
         catch (Exception ex)
         {
-            // Abaikan kalau kolom sudah ada, log jika error lain
-            if (!ex.Message.ToLower().Contains("duplicate column name"))
-                Debug.LogWarning($"[LocalChatService] EnsureTitleColumn warning: {ex.Message}");
+            // Abaikan duplikat kolom; log kalau error lain
+            var msg = ex.Message?.ToLower() ?? "";
+            if (!msg.Contains("duplicate column name"))
+                Debug.LogWarning($"{LogTag} EnsureTitleColumn warning: {ex.Message}");
         }
     }
 
@@ -44,13 +42,12 @@ public class LocalChatService : MonoBehaviour
     #region Queries
 
     /// <summary>
-    /// Retrieves all conversation IDs for a user, ordered by start time descending.
+    /// Mengambil semua conversation ID milik user, urut terbaru di atas.
     /// </summary>
     public IEnumerator FetchUserConversations(
         string userId,
         Action<string[]> onSuccess,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         try
         {
@@ -69,38 +66,13 @@ public class LocalChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// Retrieves the very first (oldest) message text for a conversation.
-    /// </summary>
-    // public IEnumerator FetchFirstMessage(
-    //     string conversationId,
-    //     Action<string> onResult,
-    //     Action<string> onError = null
-    // )
-    // {
-    //     try
-    //     {
-    //         var first = _db.Table<Message>()
-    //                        .Where(m => m.ConversationId == conversationId)
-    //                        .OrderBy(m => m.SentAt)
-    //                        .FirstOrDefault();
-    //         onResult(first?.Text ?? "");
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         onError?.Invoke(ex.Message);
-    //     }
-    //     yield break;
-    // }
-
-    /// <summary>
-    /// Retrieves all messages for a conversation, ordered by sent time ascending.
+    /// Mengambil semua pesan untuk satu conversation (ascending by time).
     /// </summary>
     public IEnumerator FetchConversationWithMessages(
         string conversationId,
         string userId,
         Action<Message[]> onResult,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         try
         {
@@ -118,7 +90,7 @@ public class LocalChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// NEW: Ambil title yang tersimpan untuk percakapan.
+    /// Ambil title yang tersimpan untuk percakapan.
     /// </summary>
     public string GetConversationTitle(string conversationId)
     {
@@ -129,7 +101,7 @@ public class LocalChatService : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogWarning($"[LocalChatService] GetConversationTitle: {ex.Message}");
+            Debug.LogWarning($"{LogTag} GetConversationTitle: {ex.Message}");
             return null;
         }
     }
@@ -138,26 +110,26 @@ public class LocalChatService : MonoBehaviour
 
     #region Commands
 
-    // LocalChatService.cs (tambahkan di #region Commands)
+    /// <summary>
+    /// Insert satu baris ringkasan ke tabel summary.
+    /// </summary>
     public IEnumerator InsertSummary(
         string conversationId,
         string summaryText,
         Action onSuccess = null,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
-        Debug.LogError($"[LocalChatService] InsertSummary: {conversationId}");
+        Debug.Log($"{LogTag} InsertSummary: {conversationId}");
         try
         {
             var row = new Summary
             {
-                Id = Guid.NewGuid().ToString(),
+                Id             = Guid.NewGuid().ToString(),
                 ConversationId = conversationId,
-                SummaryText = summaryText ?? "",
-                CreatedAt = DateTime.UtcNow
+                SummaryText    = summaryText ?? "",
+                CreatedAt      = DateTime.UtcNow
             };
 
-            // INSERT
             _db.Insert(row);
             onSuccess?.Invoke();
         }
@@ -169,23 +141,22 @@ public class LocalChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// Inserts a new conversation record.
+    /// Insert record percakapan baru.
     /// </summary>
     public IEnumerator CreateConversation(
         string conversationId,
         string userId,
         Action onSuccess,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         try
         {
             var convo = new Conversation
             {
-                Id = conversationId,
-                UserId = userId,
+                Id        = conversationId,
+                UserId    = userId,
                 StartedAt = DateTime.UtcNow,
-                Title = null
+                Title     = null
             };
             _db.Insert(convo);
             onSuccess?.Invoke();
@@ -198,15 +169,14 @@ public class LocalChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// Inserts a new message record.
+    /// Insert satu pesan.
     /// </summary>
     public IEnumerator InsertMessage(
         string conversationId,
         string sender,
         string content,
         Action onSuccess = null,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         try
         {
@@ -222,7 +192,7 @@ public class LocalChatService : MonoBehaviour
             };
             _db.Insert(msg);
 
-            // dipakai sebagai "last activity"
+            // Pakai started_at sebagai "last activity"
             _db.Execute(
                 "UPDATE conversations SET started_at = ? WHERE id = ?",
                 now,
@@ -239,7 +209,7 @@ public class LocalChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// NEW: Update title untuk conversation (sinkron, ringan).
+    /// Update title conversation.
     /// </summary>
     public void UpdateConversationTitle(string conversationId, string title)
     {
@@ -249,18 +219,17 @@ public class LocalChatService : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogWarning($"[LocalChatService] UpdateConversationTitle: {ex.Message}");
+            Debug.LogWarning($"{LogTag} UpdateConversationTitle: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// Deletes all messages for the given conversation IDs.
+    /// Hapus semua pesan untuk sekumpulan conversation IDs.
     /// </summary>
     public IEnumerator DeleteMessages(
         string[] convIds,
         Action onSuccess,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         try
         {
@@ -277,13 +246,12 @@ public class LocalChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// Deletes all messages for a single conversation.
+    /// Hapus semua pesan untuk satu conversation.
     /// </summary>
     public IEnumerator DeleteMessagesForConversation(
         string conversationId,
         Action onSuccess,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         try
         {
@@ -298,13 +266,12 @@ public class LocalChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// Deletes all conversations for a user.
+    /// Hapus semua percakapan milik user.
     /// </summary>
     public IEnumerator DeleteConversations(
         string userId,
         Action onSuccess,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         try
         {
@@ -319,13 +286,12 @@ public class LocalChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// Deletes a single conversation record.
+    /// Hapus satu percakapan.
     /// </summary>
     public IEnumerator DeleteConversation(
         string conversationId,
         Action onSuccess,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         try
         {
@@ -341,16 +307,15 @@ public class LocalChatService : MonoBehaviour
 
     #endregion
 
-    #region Composite Operations
+    #region Composite
 
     /// <summary>
-    /// Deletes all messages and then all conversations for a user.
+    /// Hapus semua pesan, lalu semua percakapan milik user.
     /// </summary>
     public IEnumerator DeleteAllChats(
         string userId,
         Action onSuccess,
-        Action<string> onError = null
-    )
+        Action<string> onError = null)
     {
         yield return FetchUserConversations(
             userId,

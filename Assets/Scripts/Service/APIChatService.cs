@@ -4,22 +4,49 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.Networking;
 
+/// <summary>
+/// Client untuk endpoint POST /chat
+/// Content-Type: multipart/form-data
+/// Fields:
+///  - username (string)
+///  - question (string)
+///  - audio (file, opsional)
+/// Response JSON: { "response": "<jawaban ai>" }
+/// </summary>
 public class APIChatService : MonoBehaviour
 {
+    #region Singleton
+
     public static APIChatService Instance { get; private set; }
-
-    [Header("API")]
-    [SerializeField] private string baseUrl    = "http://localhost:1204";
-    [SerializeField] private string endpoint   = "/chat";
-    [SerializeField] private int    timeoutSec = 30;
-
-    [Serializable] private class ChatResponse { public string response; }
 
     private void Awake()
     {
         if (Instance == null) Instance = this;
         else if (Instance != this) Destroy(gameObject);
     }
+
+    #endregion
+
+    #region Inspector
+
+    [Header("API")]
+    [SerializeField] private string baseUrl    = "http://localhost:1204";
+    [SerializeField] private string endpoint   = "/chat";
+    [SerializeField] private int    timeoutSec = 30;
+
+    #endregion
+
+    #region Data Models
+
+    [Serializable]
+    private class ChatResponse
+    {
+        public string response;
+    }
+
+    #endregion
+
+    #region Public API
 
     /// <summary>
     /// Convenience overload tanpa audio.
@@ -34,12 +61,8 @@ public class APIChatService : MonoBehaviour
     }
 
     /// <summary>
-    /// Panggil POST /chat (multipart/form-data).
-    /// Field yang dikirim: username (string), question (string), audio (file, opsional).
+    /// Kirim prompt ke /chat (audio opsional).
     /// </summary>
-    /// <param name="audioBytes">Boleh null untuk tanpa audio.</param>
-    /// <param name="audioFileName">Contoh: "voice.wav" (opsional).</param>
-    /// <param name="audioMime">Contoh: "audio/wav" (opsional).</param>
     public IEnumerator SendPrompt(
         string username,
         string question,
@@ -82,9 +105,13 @@ public class APIChatService : MonoBehaviour
                 var parsed = JsonUtility.FromJson<ChatResponse>(req.downloadHandler.text);
                 var text   = parsed?.response?.Trim();
                 if (string.IsNullOrEmpty(text))
+                {
                     onError?.Invoke("Response kosong / tidak valid.");
+                }
                 else
+                {
                     onSuccess?.Invoke(text);
+                }
             }
             catch (Exception e)
             {
@@ -92,4 +119,6 @@ public class APIChatService : MonoBehaviour
             }
         }
     }
+
+    #endregion
 }

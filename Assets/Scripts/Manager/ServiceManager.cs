@@ -16,6 +16,7 @@ public class ServiceManager : MonoBehaviour
     [HideInInspector] public APIChatService  ChatApi  { get; private set; }
     [HideInInspector] public APITopicService TopicApi { get; private set; }
     [HideInInspector] public APISummaryService SummaryApi { get; private set; }
+    [HideInInspector] public APIAgenticService AgenticApi { get; private set; }
 
     #endregion
 
@@ -48,12 +49,13 @@ public class ServiceManager : MonoBehaviour
 
     private void InitializeServices()
     {
-        UserService    = gameObject.AddComponent<LocalUserService>();
-        ChatService    = gameObject.AddComponent<LocalChatService>();
+        UserService = gameObject.AddComponent<LocalUserService>();
+        ChatService = gameObject.AddComponent<LocalChatService>();
         JournalService = gameObject.AddComponent<LocalJournalService>();
-        ChatApi        = gameObject.AddComponent<APIChatService>();
-        TopicApi       = gameObject.AddComponent<APITopicService>();
-        SummaryApi     = gameObject.AddComponent<APISummaryService>();
+        ChatApi = gameObject.AddComponent<APIChatService>();
+        TopicApi = gameObject.AddComponent<APITopicService>();
+        SummaryApi = gameObject.AddComponent<APISummaryService>();
+        AgenticApi = gameObject.AddComponent<APIAgenticService>();
     }
 
     #endregion

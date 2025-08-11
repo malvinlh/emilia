@@ -5,16 +5,17 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
 
+/// <summary>
+/// Client untuk endpoint POST /summary
+/// Content-Type: application/x-www-form-urlencoded
+/// Body: conv_id=<conversationId>
+/// Response JSON: { "response": "<teks ringkasan>" }
+/// </summary>
 public class APISummaryService : MonoBehaviour
 {
+    #region Singleton
+
     public static APISummaryService Instance { get; private set; }
-
-    [Header("API")]
-    [SerializeField] private string baseUrl    = "http://localhost:1204";
-    [SerializeField] private string endpoint   = "/summary";
-    [SerializeField] private int    timeoutSec = 20;
-
-    [Serializable] private class SummaryResponse { public string response; }
 
     private void Awake()
     {
@@ -22,9 +23,31 @@ public class APISummaryService : MonoBehaviour
         else if (Instance != this) Destroy(gameObject);
     }
 
+    #endregion
+
+    #region Inspector
+
+    [Header("API")]
+    [SerializeField] private string baseUrl    = "http://localhost:1204";
+    [SerializeField] private string endpoint   = "/summary";
+    [SerializeField] private int    timeoutSec = 20;
+
+    #endregion
+
+    #region Data Models
+
+    [Serializable]
+    private class SummaryResponse
+    {
+        public string response;
+    }
+
+    #endregion
+
+    #region Public API
+
     /// <summary>
-    /// POST /summary (application/x-www-form-urlencoded)
-    /// Body: conv_id=<conversationId>
+    /// Kirim request summary untuk sebuah conversation.
     /// </summary>
     public IEnumerator RequestSummary(
         string conversationId,
@@ -37,17 +60,14 @@ public class APISummaryService : MonoBehaviour
             yield break;
         }
 
-        string enc(string s) => Uri.EscapeDataString(s ?? "");
-        var payload = $"conv_id={enc(conversationId)}";
-        var bytes   = Encoding.UTF8.GetBytes(payload);
+        // Build x-www-form-urlencoded payload
+        var payload = EncodeForm(new (string key, string value)[] {
+            ("conv_id", conversationId)
+        });
 
-        using (var req = new UnityWebRequest($"{baseUrl}{endpoint}", UnityWebRequest.kHttpVerbPOST))
+        var url = $"{baseUrl}{endpoint}";
+        using (var req = BuildPost(url, payload, "application/x-www-form-urlencoded", timeoutSec))
         {
-            req.uploadHandler   = new UploadHandlerRaw(bytes);
-            req.downloadHandler = new DownloadHandlerBuffer();
-            req.timeout         = timeoutSec;
-            req.SetRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
             yield return req.SendWebRequest();
 
 #if UNITY_2020_2_OR_NEWER
@@ -65,9 +85,13 @@ public class APISummaryService : MonoBehaviour
                 var parsed = JsonUtility.FromJson<SummaryResponse>(req.downloadHandler.text);
                 var text   = parsed?.response?.Trim();
                 if (string.IsNullOrEmpty(text))
+                {
                     onError?.Invoke("Summary kosong / invalid.");
+                }
                 else
+                {
                     onSuccess?.Invoke(text);
+                }
             }
             catch (Exception e)
             {
@@ -75,4 +99,36 @@ public class APISummaryService : MonoBehaviour
             }
         }
     }
+
+    #endregion
+
+    #region Helpers
+
+    private static byte[] EncodeForm((string key, string value)[] fields)
+    {
+        string Enc(string s) => Uri.EscapeDataString(s ?? "");
+        var sb = new StringBuilder();
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (i > 0) sb.Append('&');
+            sb.Append(Enc(fields[i].key));
+            sb.Append('=');
+            sb.Append(Enc(fields[i].value));
+        }
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    private static UnityWebRequest BuildPost(string url, byte[] body, string contentType, int timeoutSec)
+    {
+        var req = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST)
+        {
+            uploadHandler   = new UploadHandlerRaw(body),
+            downloadHandler = new DownloadHandlerBuffer(),
+            timeout         = timeoutSec
+        };
+        req.SetRequestHeader("Content-Type", contentType);
+        return req;
+    }
+
+    #endregion
 }
