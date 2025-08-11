@@ -3,15 +3,15 @@ using UnityEngine.UI;
 using TMPro;
 using System;
 using System.Linq;
-using System.Text;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.IO;
 using EMILIA.Data;
 
 public class ChatManager : MonoBehaviour
 {
-    #region Inspector
+    #region Inspector Fields
 
     [Header("Prefabs & UI References")]
     [SerializeField] private GameObject     _userBubblePrefab;
@@ -20,11 +20,15 @@ public class ChatManager : MonoBehaviour
     [SerializeField] private Transform      _chatContentParent;
     [SerializeField] private Transform      _chatHistoryParent;
     [SerializeField] private TMP_InputField _inputField;
-
-    [Header("Input Buttons")]
     [SerializeField] private Button         _newChatButton;
-    [SerializeField] private Button         _sendButton;          // /chat
-    [SerializeField] private Button         _reasoningSendButton; // /agentic
+    [SerializeField] private Button         _sendButton;
+
+    [Header("Reasoning (Agentic)")]
+    [SerializeField] private Button         _reasoningSendButton; // Toggle ON
+    [SerializeField] private Button         _reasoningStopButton; // Toggle OFF
+
+    [Header("Audio Recording")]
+    [SerializeField] private RecordAudio    _recorder;            // drag komponen RecordAudio di sini
 
     [Header("Delete Confirmation UI")]
     [SerializeField] private GameObject     _deleteChatSetting;
@@ -33,16 +37,15 @@ public class ChatManager : MonoBehaviour
 
     #endregion
 
-    #region Constants & State
+    #region Constants & Fields
 
-    private const string LogTag              = "[ChatManager]";
     private const string PrefKeyNickname     = "Nickname";
     private const int    SnippetMaxLength    = 20;
     private const string TypingPlaceholderId = "__TYPING__";
     private const string NewChatLabel        = "New Chat";
 
-    private const string ReasoningSender     = "Reasoning";
-    private const string BotSender           = "Bot";
+    private const string BotSender       = "Bot";
+    private const string ReasoningSender = "Reasoning";
 
     private static readonly Regex ConversationRegex =
         new Regex(@"cv(\d+)$", RegexOptions.Compiled);
@@ -51,19 +54,23 @@ public class ChatManager : MonoBehaviour
 
     private string _currentConversationId;
     private string _pendingDeleteId;
+
     private bool   _isAwaitingResponse;
+    private bool   _isReasoningMode = false; // toggle global
 
-    private readonly Dictionary<string, List<Message>> _messageCache = new();
-    private readonly HashSet<string> _isTyping = new();
-    private readonly List<string> _userConvs = new();
+    private readonly Dictionary<string, List<Message>> _messageCache =
+        new Dictionary<string, List<Message>>();
 
-    private readonly Dictionary<string, string> _topicCache     = new();
-    private readonly HashSet<string>            _topicRequested = new();
-    private readonly Dictionary<string, int>    _lastSummarizedPairCount = new();
+    private readonly HashSet<string> _isTyping = new HashSet<string>();
+    private readonly List<string>    _userConvs = new List<string>();
+
+    private readonly Dictionary<string, string> _topicCache     = new Dictionary<string, string>();
+    private readonly HashSet<string>            _topicRequested = new HashSet<string>();
+    private readonly Dictionary<string, int>    _lastSummarizedPairCount = new Dictionary<string, int>();
 
     #endregion
 
-    #region Unity lifecycle
+    #region Unity
 
     private void Awake()
     {
@@ -76,6 +83,19 @@ public class ChatManager : MonoBehaviour
         FetchAndPopulateHistory();
     }
 
+    private void OnEnable()
+    {
+        // subscribe event dari recorder (kalau ada)
+        if (_recorder != null)
+            _recorder.OnSaved += OnAudioSaved;
+    }
+
+    private void OnDisable()
+    {
+        if (_recorder != null)
+            _recorder.OnSaved -= OnAudioSaved;
+    }
+
     #endregion
 
     #region Init & Session
@@ -83,10 +103,16 @@ public class ChatManager : MonoBehaviour
     private void LoadCurrentUser()
     {
         var nick = PlayerPrefs.GetString(PrefKeyNickname, "");
-        if (string.IsNullOrEmpty(CurrentUserId)) CurrentUserId = nick;
-        else if (CurrentUserId != nick) { OnUserChanged(nick); return; }
+        if (string.IsNullOrEmpty(CurrentUserId))
+        {
+            CurrentUserId = nick;
+        }
+        else if (CurrentUserId != nick)
+        {
+            OnUserChanged(nick);
+            return;
+        }
 
-        Debug.Log($"{LogTag} CurrentUserId = '{CurrentUserId}'");
         _currentConversationId = null;
         ClearChat();
     }
@@ -95,16 +121,22 @@ public class ChatManager : MonoBehaviour
     {
         _deleteChatSetting.SetActive(false);
 
-        _newChatButton.onClick.AddListener(OnNewChatClicked);
-        _sendButton?.onClick.AddListener(() => OnSendClicked(useAgentic:false));
-        _reasoningSendButton?.onClick.AddListener(() => OnSendClicked(useAgentic:true));
+        _newChatButton?.onClick.AddListener(OnNewChatClicked);
+        _sendButton    ?.onClick.AddListener(OnSendClicked);
 
-        _deleteNoButton.onClick.AddListener(() =>
+        if (_reasoningSendButton != null) _reasoningSendButton.onClick.AddListener(EnterReasoningMode);
+        if (_reasoningStopButton != null) _reasoningStopButton.onClick.AddListener(ExitReasoningMode);
+
+        _isReasoningMode = false;
+        ApplyReasoningVisibilityByMode();
+        UpdateReasoningInteractable();
+
+        _deleteNoButton?.onClick.AddListener(() =>
         {
             _deleteChatSetting.SetActive(false);
             _pendingDeleteId = null;
         });
-        _deleteYesButton.onClick.AddListener(ConfirmDeleteConversation);
+        _deleteYesButton?.onClick.AddListener(ConfirmDeleteConversation);
     }
 
     public void OnUserChanged(string newUserId)
@@ -121,24 +153,165 @@ public class ChatManager : MonoBehaviour
         _currentConversationId = null;
         ClearChat();
 
+        _isReasoningMode = false;
+        ApplyReasoningVisibilityByMode();
+        UpdateReasoningInteractable();
+
         FetchAndPopulateHistory();
+    }
+
+    private void ResetSessionState()
+    {
+        _messageCache.Clear();
+        _isTyping.Clear();
+        _topicCache.Clear();
+        _topicRequested.Clear();
+        _lastSummarizedPairCount.Clear();
+        _userConvs.Clear();
+        _currentConversationId = null;
+        ClearChat();
+
+        _isReasoningMode = false;
+        ApplyReasoningVisibilityByMode();
+        UpdateReasoningInteractable();
     }
 
     #endregion
 
-    #region History
+    #region Reasoning Toggle
+
+    private void EnterReasoningMode()
+    {
+        _isReasoningMode = true;
+        ApplyReasoningVisibilityByMode(); // show/hide GO hanya saat toggle
+        UpdateReasoningInteractable();
+    }
+
+    private void ExitReasoningMode()
+    {
+        _isReasoningMode = false;
+        ApplyReasoningVisibilityByMode();
+        UpdateReasoningInteractable();
+    }
+
+    private void ApplyReasoningVisibilityByMode()
+    {
+        if (_reasoningSendButton != null)
+            _reasoningSendButton.gameObject.SetActive(!_isReasoningMode);
+        if (_reasoningStopButton != null)
+            _reasoningStopButton.gameObject.SetActive(_isReasoningMode);
+    }
+
+    private void UpdateReasoningInteractable()
+    {
+        if (_reasoningSendButton != null)
+            _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
+        if (_reasoningStopButton != null)
+            _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
+    }
+
+    private void SetAwaiting(bool value)
+    {
+        _isAwaitingResponse = value;
+
+        if (_sendButton    != null) _sendButton.interactable     = !value;
+        if (_newChatButton != null) _newChatButton.interactable  = !value;
+        if (_inputField    != null) _inputField.interactable     = !value;
+
+        UpdateReasoningInteractable();
+    }
+
+    #endregion
+
+    #region Audio → draft ke InputField
+
+    /// <summary>
+    /// Dipanggil dari RecordAudio saat file WAV sudah tersimpan.
+    /// Kita upload ke endpoint sesuai mode, ambil teks, lalu masukin ke input field.
+    /// </summary>
+    private void OnAudioSaved(string filePath)
+    {
+        if (!File.Exists(filePath))
+        {
+            Debug.LogWarning($"Audio file not found: {filePath}");
+            return;
+        }
+        StartCoroutine(UploadAudioAndFillInput(filePath));
+    }
+
+    private IEnumerator UploadAudioAndFillInput(string filePath)
+    {
+        SetAwaiting(true);
+
+        byte[] bytes  = File.ReadAllBytes(filePath);
+        string fname  = Path.GetFileName(filePath);
+        const string mime = "audio/wav";
+
+        if (_isReasoningMode)
+        {
+            // === /agentic ===
+            // NOTE: pastikan AgenticApi.Send mendukung audio mirip ChatApi.SendPrompt
+            yield return ServiceManager.Instance.AgenticApi.Send(
+                userId:    CurrentUserId,
+                username:  CurrentUserId,
+                question:  null,
+                audioBytes: bytes,
+                audioFileName: fname,
+                audioMime: mime,
+                onSuccess: res =>
+                {
+                    // ambil teks yang paling relevan untuk dijadikan draft
+                    var draft = !string.IsNullOrWhiteSpace(res.response)
+                        ? res.response
+                        : (!string.IsNullOrWhiteSpace(res.reasoning) ? res.reasoning : "");
+                    _inputField.text = draft ?? "";
+                    SetAwaiting(false);
+                },
+                onError: err =>
+                {
+                    Debug.LogError($"Agentic audio error: {err}");
+                    SetAwaiting(false);
+                }
+            );
+        }
+        else
+        {
+            // === /chat ===
+            yield return ServiceManager.Instance.ChatApi.SendPrompt(
+                username: CurrentUserId,
+                question: null,          // biarkan kosong; server akan pakai audio
+                audioBytes: bytes,
+                audioFileName: fname,
+                audioMime: mime,
+                onSuccess: responseText =>
+                {
+                    _inputField.text = responseText ?? "";
+                    SetAwaiting(false);
+                },
+                onError: err =>
+                {
+                    Debug.LogError($"Chat audio error: {err}");
+                    SetAwaiting(false);
+                }
+            );
+        }
+    }
+
+    #endregion
+
+    #region History Sidebar
 
     private void FetchAndPopulateHistory()
     {
         StartCoroutine(ServiceManager.Instance.ChatService.FetchUserConversations(
             CurrentUserId,
-            ids =>
+            convIds =>
             {
-                PopulateHistoryButtons(ids);
+                PopulateHistoryButtons(convIds);
                 _userConvs.Clear();
-                _userConvs.AddRange(ids);
+                _userConvs.AddRange(convIds);
             },
-            err => Debug.LogError($"{LogTag} Fetch conv IDs failed: {err}")
+            err => Debug.LogError($"Fetch conv IDs failed: {err}")
         ));
     }
 
@@ -157,8 +330,8 @@ public class ChatManager : MonoBehaviour
         var hb = go.GetComponent<HistoryButton>();
         hb.SetConversationId(convId);
 
-        var placeholder = $"Chat {index + 1}";
-        hb.SetLabel(placeholder);
+        var placeholderText = $"Chat {index + 1}";
+        hb.SetLabel(placeholderText);
 
         var existingTitle = ServiceManager.Instance.ChatService.GetConversationTitle(convId);
         if (!string.IsNullOrWhiteSpace(existingTitle))
@@ -178,19 +351,20 @@ public class ChatManager : MonoBehaviour
                 CurrentUserId,
                 msgs =>
                 {
-                    var firstUser = msgs.FirstOrDefault(m => m.Sender != BotSender && m.Sender != ReasoningSender);
+                    var firstUser = msgs.FirstOrDefault(m => m.Sender != BotSender);
                     var firstBot  = msgs.FirstOrDefault(m => m.Sender == BotSender);
                     if (firstUser != null && firstBot != null)
                         TryGenerateTopicOnce(convId, firstUser.Text, firstBot.Text, hb);
                     else
                         hb.SetLabel(NewChatLabel);
                 },
-                err => Debug.LogWarning($"{LogTag} Fetch conv for topic failed: {err}")
+                err => Debug.LogWarning($"Fetch conv for topic failed: {err}")
             ));
         }
 
         var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
-        if (delBtn != null) delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
+        if (delBtn != null)
+            delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
     }
 
     public void OnHistoryClicked(string conversationId)
@@ -198,7 +372,7 @@ public class ChatManager : MonoBehaviour
         _currentConversationId = conversationId;
         ClearChat();
 
-        if (_messageCache.TryGetValue(conversationId, out var _))
+        if (_messageCache.TryGetValue(conversationId, out var cached))
             RebuildChatUI(conversationId);
 
         StartCoroutine(ServiceManager.Instance.ChatService.FetchConversationWithMessages(
@@ -218,15 +392,16 @@ public class ChatManager : MonoBehaviour
                         SentAt         = DateTime.UtcNow
                     });
                 }
+
                 RebuildChatUI(conversationId);
             },
-            err => Debug.LogError($"{LogTag} Fetch conversation failed: {err}")
+            err => Debug.LogError($"Fetch conversation failed: {err}")
         ));
     }
 
     #endregion
 
-    #region Sending
+    #region Sending & New Conversation
 
     private void OnNewChatClicked()
     {
@@ -234,7 +409,7 @@ public class ChatManager : MonoBehaviour
         _currentConversationId = null;
     }
 
-    private void OnSendClicked(bool useAgentic)
+    private void OnSendClicked()
     {
         var text = _inputField.text.Trim();
         if (string.IsNullOrEmpty(text) || _isAwaitingResponse) return;
@@ -243,32 +418,75 @@ public class ChatManager : MonoBehaviour
         CreateBubble(text, true);
 
         if (string.IsNullOrEmpty(_currentConversationId))
-            StartNewConversation(text, useAgentic);
+        {
+            if (_isReasoningMode)
+                StartNewConversationForReasoning(text);
+            else
+                StartNewConversation(text);
+        }
         else
-            StartCoroutine(SendUserMessage(text, _currentConversationId, useAgentic));
+        {
+            if (_isReasoningMode)
+                StartCoroutine(SendUserMessageReasoning(text, _currentConversationId));
+            else
+                StartCoroutine(SendUserMessage(text, _currentConversationId));
+        }
     }
 
-    private void StartNewConversation(string firstUserMsg, bool useAgentic)
+    // tombol reasoning send khusus (opsional)
+    private void OnSendReasoningClicked()
+    {
+        var text = _inputField.text.Trim();
+        if (string.IsNullOrEmpty(text) || _isAwaitingResponse) return;
+
+        _inputField.text = "";
+        CreateBubble(text, true);
+
+        if (string.IsNullOrEmpty(_currentConversationId))
+            StartNewConversationForReasoning(text);
+        else
+            StartCoroutine(SendUserMessageReasoning(text, _currentConversationId));
+    }
+
+    private void StartNewConversation(string text)
     {
         var convoId = GenerateConversationId();
         _currentConversationId = convoId;
         _userConvs.Add(convoId);
         _messageCache[convoId] = new List<Message>();
 
-        AddHistoryButtonForNew(convoId);
+        AddHistoryButtonForNew(convoId, text);
 
         StartCoroutine(ServiceManager.Instance.ChatService.CreateConversation(
             convoId,
             CurrentUserId,
-            onSuccess: () => StartCoroutine(SendUserMessage(firstUserMsg, convoId, useAgentic)),
-            onError:   err => Debug.LogError($"{LogTag} CreateConversation failed: {err}")
+            onSuccess: () => StartCoroutine(SendUserMessage(text, convoId)),
+            onError:   err => Debug.LogError($"CreateConversation failed: {err}")
+        ));
+    }
+
+    private void StartNewConversationForReasoning(string text)
+    {
+        var convoId = GenerateConversationId();
+        _currentConversationId = convoId;
+        _userConvs.Add(convoId);
+        _messageCache[convoId] = new List<Message>();
+
+        AddHistoryButtonForNew(convoId, text);
+
+        StartCoroutine(ServiceManager.Instance.ChatService.CreateConversation(
+            convoId,
+            CurrentUserId,
+            onSuccess: () => StartCoroutine(SendUserMessageReasoning(text, convoId)),
+            onError:   err => Debug.LogError($"CreateConversation (agentic) failed: {err}")
         ));
     }
 
     private string GenerateConversationId()
     {
         int nextIdx = _userConvs
-            .Select(id => {
+            .Select(id =>
+            {
                 var m = ConversationRegex.Match(id);
                 return m.Success ? int.Parse(m.Groups[1].Value) : 0;
             })
@@ -278,7 +496,7 @@ public class ChatManager : MonoBehaviour
         return $"{CurrentUserId}_cv{nextIdx:00}";
     }
 
-    private void AddHistoryButtonForNew(string convId)
+    private void AddHistoryButtonForNew(string convId, string initialMsg)
     {
         var go = Instantiate(_historyButtonPrefab, _chatHistoryParent);
         var hb = go.GetComponent<HistoryButton>();
@@ -287,10 +505,11 @@ public class ChatManager : MonoBehaviour
         hb.transform.SetAsFirstSibling();
 
         var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
-        if (delBtn != null) delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
+        if (delBtn != null)
+            delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
     }
 
-    private IEnumerator SendUserMessage(string text, string convoId, bool useAgentic)
+    private IEnumerator SendUserMessage(string text, string convoId)
     {
         var userMsg = new Message {
             Id             = Guid.NewGuid().ToString(),
@@ -299,24 +518,46 @@ public class ChatManager : MonoBehaviour
             Text           = text,
             SentAt         = DateTime.UtcNow
         };
+
         _messageCache[convoId].Add(userMsg);
 
         yield return ServiceManager.Instance.ChatService.InsertMessage(
             convoId,
             CurrentUserId,
             text,
-            onSuccess: () => StartCoroutine(HandleAITurn(text, convoId, useAgentic)),
-            onError:   err => Debug.LogError($"{LogTag} Insert message failed: {err}")
+            onSuccess: () => StartCoroutine(HandleAITurn(text, convoId)),
+            onError:   err => Debug.LogError($"Insert message failed: {err}")
+        );
+    }
+
+    private IEnumerator SendUserMessageReasoning(string text, string convoId)
+    {
+        var userMsg = new Message {
+            Id             = Guid.NewGuid().ToString(),
+            ConversationId = convoId,
+            Sender         = CurrentUserId,
+            Text           = text,
+            SentAt         = DateTime.UtcNow
+        };
+
+        _messageCache[convoId].Add(userMsg);
+
+        yield return ServiceManager.Instance.ChatService.InsertMessage(
+            convoId,
+            CurrentUserId,
+            text,
+            onSuccess: () => StartCoroutine(HandleAgenticTurn(text, convoId)),
+            onError:   err => Debug.LogError($"Insert message (agentic) failed: {err}")
         );
     }
 
     #endregion
 
-    #region AI Handling
+    #region AI Handling & Typing
 
-    private IEnumerator HandleAITurn(string userMessage, string convoId, bool useAgentic)
+    private IEnumerator HandleAITurn(string userMessage, string convoId)
     {
-        _isAwaitingResponse = true;
+        SetAwaiting(true);
         _isTyping.Add(convoId);
 
         _messageCache[convoId].Add(new Message {
@@ -327,99 +568,136 @@ public class ChatManager : MonoBehaviour
             SentAt         = DateTime.UtcNow
         });
 
-        if (_currentConversationId == convoId) RebuildChatUI(convoId);
+        if (_currentConversationId == convoId)
+            RebuildChatUI(convoId);
 
-        if (useAgentic)
-        {
-            // ===== /agentic =====
-            yield return ServiceManager.Instance.AgenticApi.Send(
-                userId: CurrentUserId,
-                username: CurrentUserId,
-                question: userMessage,
-                onSuccess: res  => OnAgenticSuccess(convoId, userMessage, res),
-                onError:   err  => OnAIError(convoId, err)
-            );
-        }
-        else
-        {
-            // ===== /chat (biasa) =====
-            yield return ServiceManager.Instance.ChatApi.SendPrompt(
-                username: CurrentUserId,
-                question: userMessage,
-                audioBytes: null, audioFileName: null, audioMime: null,
-                onSuccess: resp => OnPlainChatSuccess(convoId, userMessage, resp),
-                onError:   err  => OnAIError(convoId, err)
-            );
-        }
+        // === /chat ===
+        yield return ServiceManager.Instance.ChatApi.SendPrompt(
+            username: CurrentUserId,
+            question: userMessage,
+            audioBytes: null,
+            audioFileName: null,
+            audioMime: null,
+            onSuccess: response =>
+            {
+                _isTyping.Remove(convoId);
+                _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
+
+                var aiMsg = new Message {
+                    Id             = Guid.NewGuid().ToString(),
+                    ConversationId = convoId,
+                    Sender         = BotSender,
+                    Text           = response,
+                    SentAt         = DateTime.UtcNow
+                };
+                _messageCache[convoId].Add(aiMsg);
+
+                if (_currentConversationId == convoId)
+                    RebuildChatUI(convoId);
+
+                SaveAIMessage(response, convoId);
+                SetAwaiting(false);
+
+                TryGenerateTopicOnce(convoId, userMessage, response);
+                TrySummarizeEveryTwoPairs(convoId);
+            },
+            onError: err =>
+            {
+                Debug.LogError($"Chat API error: {err}");
+                _isTyping.Remove(convoId);
+                _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
+                SetAwaiting(false);
+                if (_currentConversationId == convoId)
+                    RebuildChatUI(convoId);
+            }
+        );
     }
 
-    private void OnAgenticSuccess(string convoId, string userMessage, APIAgenticService.AgenticResult res)
+    private IEnumerator HandleAgenticTurn(string userMessage, string convoId)
     {
-        _isTyping.Remove(convoId);
-        _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
+        SetAwaiting(true);
+        _isTyping.Add(convoId);
 
-        // Simpan RAW ke DB & cache: Reasoning lalu Bot
-        var reasoningRaw = (res.reasoning ?? "").Trim();
-        var responseRaw  = (res.response  ?? "").Trim();
-
-        // 1) Reasoning (sender = "Reasoning")
-        AddMessageToCache(convoId, ReasoningSender, reasoningRaw);
-        StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(
-            convoId, ReasoningSender, reasoningRaw, null,
-            err => Debug.LogWarning($"{LogTag} Save reasoning failed: {err}")
-        ));
-
-        // 2) Response (sender = "Bot")
-        AddMessageToCache(convoId, BotSender, responseRaw);
-        SaveAIMessage(responseRaw, convoId);
-
-        if (_currentConversationId == convoId) RebuildChatUI(convoId);
-        _isAwaitingResponse = false;
-
-        // Judul pakai final response
-        TryGenerateTopicOnce(convoId, userMessage, responseRaw);
-        TrySummarizeEveryTwoPairs(convoId);
-    }
-
-    private void OnPlainChatSuccess(string convoId, string userMessage, string response)
-    {
-        _isTyping.Remove(convoId);
-        _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
-
-        AddMessageToCache(convoId, BotSender, response);
-        SaveAIMessage(response, convoId);
-
-        if (_currentConversationId == convoId) RebuildChatUI(convoId);
-        _isAwaitingResponse = false;
-
-        TryGenerateTopicOnce(convoId, userMessage, response);
-        TrySummarizeEveryTwoPairs(convoId);
-    }
-
-    private void OnAIError(string convoId, string err)
-    {
-        Debug.LogError($"{LogTag} AI error: {err}");
-        _isTyping.Remove(convoId);
-        _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
-        _isAwaitingResponse = false;
-        if (_currentConversationId == convoId) RebuildChatUI(convoId);
-    }
-
-    private void AddMessageToCache(string convoId, string sender, string text)
-    {
         _messageCache[convoId].Add(new Message {
-            Id             = Guid.NewGuid().ToString(),
+            Id             = TypingPlaceholderId,
             ConversationId = convoId,
-            Sender         = sender,
-            Text           = text,
+            Sender         = BotSender,
+            Text           = null,
             SentAt         = DateTime.UtcNow
         });
+
+        if (_currentConversationId == convoId)
+            RebuildChatUI(convoId);
+
+        yield return ServiceManager.Instance.AgenticApi.Send(
+            userId:    CurrentUserId,
+            username:  CurrentUserId,
+            question:  userMessage,
+            onSuccess: res =>
+            {
+                _isTyping.Remove(convoId);
+                _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
+
+                if (!string.IsNullOrWhiteSpace(res.reasoning))
+                {
+                    var rMsg = new Message {
+                        Id             = Guid.NewGuid().ToString(),
+                        ConversationId = convoId,
+                        Sender         = ReasoningSender,
+                        Text           = res.reasoning,
+                        SentAt         = DateTime.UtcNow
+                    };
+                    _messageCache[convoId].Add(rMsg);
+                    StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(convoId, ReasoningSender, rMsg.Text));
+                }
+
+                var botText = res.response ?? "";
+                var bMsg = new Message {
+                    Id             = Guid.NewGuid().ToString(),
+                    ConversationId = convoId,
+                    Sender         = BotSender,
+                    Text           = botText,
+                    SentAt         = DateTime.UtcNow
+                };
+                _messageCache[convoId].Add(bMsg);
+                StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(convoId, BotSender, bMsg.Text));
+
+                if (_currentConversationId == convoId)
+                    RebuildChatUI(convoId);
+
+                SetAwaiting(false);
+
+                if (!string.IsNullOrWhiteSpace(res.summary))
+                {
+                    StartCoroutine(ServiceManager.Instance.ChatService.InsertSummary(
+                        convoId,
+                        res.summary,
+                        onSuccess: () => Debug.Log($"[Agentic] summary saved for {convoId}"),
+                        onError:   e => Debug.LogWarning($"[Agentic] save summary failed: {e}")
+                    ));
+                }
+
+                TryGenerateTopicOnce(convoId, userMessage, botText);
+                TrySummarizeEveryTwoPairs(convoId);
+            },
+            onError: err =>
+            {
+                Debug.LogError($"Agentic API error: {err}");
+                _isTyping.Remove(convoId);
+                _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
+                SetAwaiting(false);
+                if (_currentConversationId == convoId)
+                    RebuildChatUI(convoId);
+            }
+        );
     }
 
-    private void SaveAIMessage(string textToPersist, string convoId)
+    private void SaveAIMessage(string response, string convoId)
     {
         StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(
-            convoId, BotSender, textToPersist,
+            convoId,
+            BotSender,
+            response,
             onSuccess: () =>
             {
                 var btn = _chatHistoryParent
@@ -427,7 +705,7 @@ public class ChatManager : MonoBehaviour
                     .FirstOrDefault(h => h.ConversationId == convoId);
                 if (btn != null) btn.transform.SetAsFirstSibling();
             },
-            onError: err => Debug.LogError($"{LogTag} Save AI message failed: {err}")
+            onError: err => Debug.LogError($"Save AI message failed: {err}")
         ));
     }
 
@@ -437,7 +715,8 @@ public class ChatManager : MonoBehaviour
 
     private void TryGenerateTopicOnce(string convoId, string userText, string botText, HistoryButton hb = null)
     {
-        if (string.IsNullOrWhiteSpace(userText) || string.IsNullOrWhiteSpace(botText)) return;
+        if (string.IsNullOrWhiteSpace(userText) || string.IsNullOrWhiteSpace(botText))
+            return;
 
         var dbTitle = ServiceManager.Instance.ChatService.GetConversationTitle(convoId);
         if (!string.IsNullOrWhiteSpace(dbTitle))
@@ -449,11 +728,14 @@ public class ChatManager : MonoBehaviour
             return;
         }
 
-        if (_topicCache.ContainsKey(convoId) || _topicRequested.Contains(convoId)) return;
+        if (_topicCache.ContainsKey(convoId) || _topicRequested.Contains(convoId))
+            return;
+
         _topicRequested.Add(convoId);
 
         StartCoroutine(ServiceManager.Instance.TopicApi.GetTopic(
-            userText, botText,
+            userText,
+            botText,
             onSuccess: topic =>
             {
                 _topicRequested.Remove(convoId);
@@ -469,37 +751,30 @@ public class ChatManager : MonoBehaviour
             onError: err =>
             {
                 _topicRequested.Remove(convoId);
-                Debug.LogWarning($"{LogTag} [TopicOnce] {convoId}: {err}");
+                Debug.LogWarning($"[TopicOnce] {convoId}: {err}");
             }
         ));
     }
 
-    /// <summary>
-    /// Hitung pasangan user→bot (abaikan Reasoning) dan tembak /summary tiap kali genap 2,4,6...
-    /// </summary>
     private void TrySummarizeEveryTwoPairs(string convoId)
     {
         if (!_messageCache.TryGetValue(convoId, out var msgs) || msgs == null) return;
 
         var ordered = msgs.OrderBy(m => m.SentAt).ToList();
 
-        bool IsUserMsg(Message m) => m.Sender != BotSender && m.Sender != ReasoningSender;
-        bool IsBotMsg (Message m) => m.Sender == BotSender;
-
         int pairs = 0;
         bool waitingForBot = false;
 
         foreach (var m in ordered)
         {
-            if (IsBotMsg(m))
+            if (m.Sender == BotSender)
             {
                 if (waitingForBot) { pairs++; waitingForBot = false; }
             }
-            else if (IsUserMsg(m))
+            else if (m.Sender != ReasoningSender)
             {
                 waitingForBot = true;
             }
-            // Reasoning diabaikan
         }
 
         if (pairs < 2 || (pairs % 2 != 0)) return;
@@ -509,27 +784,54 @@ public class ChatManager : MonoBehaviour
 
         _lastSummarizedPairCount[convoId] = pairs;
 
-        if (ServiceManager.Instance?.SummaryApi == null)
-        {
-            Debug.LogWarning($"{LogTag} [SUMMARY] SummaryApi belum terinisialisasi.");
-            return;
-        }
+        if (ServiceManager.Instance?.SummaryApi == null) return;
 
         StartCoroutine(ServiceManager.Instance.SummaryApi.RequestSummary(
             convoId,
-            onSuccess: text =>
-            {
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    StartCoroutine(ServiceManager.Instance.ChatService.InsertSummary(
-                        convoId, text,
-                        onSuccess: () => Debug.Log($"{LogTag} [SUMMARY] saved for {convoId}"),
-                        onError:   err => Debug.LogWarning($"{LogTag} [SUMMARY] save failed: {err}")
-                    ));
-                }
-            },
-            onError: err => Debug.LogWarning($"{LogTag} [SUMMARY] ({convoId}) ERROR: {err}")
+            onSuccess: text => Debug.Log($"[SUMMARY] ({convoId}) pairs={pairs}: {text}"),
+            onError:   err  => Debug.LogWarning($"[SUMMARY] ({convoId}) ERROR: {err}")
         ));
+    }
+
+    #endregion
+
+    #region Delete Conversation
+
+    public void OnDeleteClicked(string conversationId)
+    {
+        _pendingDeleteId = conversationId;
+        _deleteChatSetting.SetActive(true);
+    }
+
+    private void ConfirmDeleteConversation()
+    {
+        if (string.IsNullOrEmpty(_pendingDeleteId)) return;
+
+        StartCoroutine(ServiceManager.Instance.ChatService.DeleteMessagesForConversation(
+            _pendingDeleteId,
+            onSuccess: () => StartCoroutine(ProceedDeleteConversation()),
+            onError:   err => Debug.LogError($"DeleteMessages failed: {err}")
+        ));
+    }
+
+    private IEnumerator ProceedDeleteConversation()
+    {
+        yield return ServiceManager.Instance.ChatService.DeleteConversation(
+            _pendingDeleteId,
+            onSuccess: () =>
+            {
+                _deleteChatSetting.SetActive(false);
+                FetchAndPopulateHistory();
+
+                if (_pendingDeleteId == _currentConversationId)
+                {
+                    ClearChat();
+                    _currentConversationId = null;
+                }
+                _pendingDeleteId = null;
+            },
+            onError: err => Debug.LogError($"DeleteConversation failed: {err}")
+        );
     }
 
     #endregion
@@ -553,33 +855,35 @@ public class ChatManager : MonoBehaviour
                 continue;
             }
 
-            // Kombinasi Reasoning + Bot → satu bubble dengan blockquote
             if (m.Sender == ReasoningSender)
             {
                 string reasoning = m.Text ?? "";
+                string response  = null;
 
-                string response = null;
                 if (i + 1 < list.Count && list[i + 1].Sender == BotSender)
                 {
                     response = list[i + 1].Text ?? "";
-                    i++; // skip Bot berikutnya karena sudah digabung
+                    i++;
                 }
 
-                var combined = BuildAgenticCombined(reasoning, response);
-                CreateBubble(combined, false);
+                var go   = Instantiate(_aiBubblePrefab, _chatContentParent);
+                var ctrl = go.GetComponent<ChatBubbleController>();
+                ctrl.SetAgentic(reasoning, response);
                 continue;
             }
 
-            // Pesan Bot yang tidak didahului Reasoning
             if (m.Sender == BotSender)
             {
-                CreateBubble(m.Text, false);
+                var go   = Instantiate(_aiBubblePrefab, _chatContentParent);
+                var ctrl = go.GetComponent<ChatBubbleController>();
+                ctrl.SetText(m.Text);
                 continue;
             }
 
-            // Default: user
             bool isUser = (m.Sender == CurrentUserId);
-            CreateBubble(m.Text, isUser);
+            var g1   = Instantiate(isUser ? _userBubblePrefab : _aiBubblePrefab, _chatContentParent);
+            var c1   = g1.GetComponent<ChatBubbleController>();
+            c1.SetText(m.Text);
         }
     }
 
@@ -588,43 +892,6 @@ public class ChatManager : MonoBehaviour
         var prefab = isUser ? _userBubblePrefab : _aiBubblePrefab;
         var go     = Instantiate(prefab, _chatContentParent);
         go.GetComponent<ChatBubbleController>()?.SetText(message);
-    }
-
-    public void OnDeleteClicked(string conversationId)
-    {
-        _pendingDeleteId = conversationId;
-        _deleteChatSetting.SetActive(true);
-    }
-
-    private void ConfirmDeleteConversation()
-    {
-        if (string.IsNullOrEmpty(_pendingDeleteId)) return;
-
-        StartCoroutine(ServiceManager.Instance.ChatService.DeleteMessagesForConversation(
-            _pendingDeleteId,
-            onSuccess: () => StartCoroutine(ProceedDeleteConversation()),
-            onError:   err => Debug.LogError($"{LogTag} DeleteMessages failed: {err}")
-        ));
-    }
-
-    private IEnumerator ProceedDeleteConversation()
-    {
-        yield return ServiceManager.Instance.ChatService.DeleteConversation(
-            _pendingDeleteId,
-            onSuccess: () =>
-            {
-                _deleteChatSetting.SetActive(false);
-                FetchAndPopulateHistory();
-
-                if (_pendingDeleteId == _currentConversationId)
-                {
-                    ClearChat();
-                    _currentConversationId = null;
-                }
-                _pendingDeleteId = null;
-            },
-            onError: err => Debug.LogError($"{LogTag} DeleteConversation failed: {err}")
-        );
     }
 
     private void ClearChat()
@@ -643,39 +910,6 @@ public class ChatManager : MonoBehaviour
             i = (i + 1) % dots.Length;
             yield return new WaitForSeconds(0.5f);
         }
-    }
-
-    #endregion
-
-    #region Text helpers (blockquote look)
-
-    // Meniru tampilan blockquote ala Markdown '>'
-    // │ (pipe) diwarnai abu-abu, isi reasoning dibuat italic & warna lebih soft.
-    private string ToQuoteBlock(string s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return "";
-        var lines = s.Replace("\r", "").Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-            lines[i] = $"<color=#CBD5E1>│ </color><color=#94A3B8><i>{lines[i]}</i></color>";
-        return string.Join("\n", lines);
-    }
-
-    // Header + blockquote reasoning (+ response normal jika ada)
-    private string BuildAgenticCombined(string reasoning, string response)
-    {
-        var sb = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(reasoning))
-        {
-            sb.AppendLine("<b>🧠 Reasoning</b>");
-            sb.AppendLine(ToQuoteBlock(reasoning.Trim()));
-        }
-        if (!string.IsNullOrWhiteSpace(response))
-        {
-            if (sb.Length > 0) sb.AppendLine("\n");
-            sb.AppendLine("<b>💬 Response</b>");
-            sb.AppendLine(response.Trim());
-        }
-        return sb.ToString().Trim();
     }
 
     #endregion

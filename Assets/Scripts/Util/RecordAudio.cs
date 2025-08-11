@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
@@ -21,18 +22,27 @@ public class RecordAudio : MonoBehaviour
 
     [Header("UI Buttons")]
     [Tooltip("Button that starts the recording")]
-    [SerializeField] private Button startButton;
+    [SerializeField] private Button startButton;      // MicStartButton
     [Tooltip("Button that stops & saves the recording")]
-    [SerializeField] private Button stopButton;
+    [SerializeField] private Button stopButton;       // MicStopButton
+
+    #endregion
+
+    #region Events
+
+    /// <summary>
+    /// Dipanggil setelah file WAV selesai disimpan. Param = absolute path file.
+    /// </summary>
+    public event Action<string> OnSaved;
 
     #endregion
 
     #region Private State
 
-    private string   _directoryPath;
-    private string   _filePath;
+    private string    _directoryPath;
+    private string    _filePath;
     private AudioClip _recordedClip;
-    private float    _startTime;
+    private float     _startTime;
 
     #endregion
 
@@ -40,28 +50,32 @@ public class RecordAudio : MonoBehaviour
 
     private void Awake()
     {
-        // Prepare our save folder & filepath on the main thread
-        _directoryPath = Path.Combine(Application.persistentDataPath, folderName);
-        if (!Directory.Exists(_directoryPath))
-            Directory.CreateDirectory(_directoryPath);
+        // Path tujuan di drive D:
+        string targetFolder = @"D:\Emilia\AI\Recordings";
 
+        // Pastikan folder ada
+        if (!Directory.Exists(targetFolder))
+            Directory.CreateDirectory(targetFolder);
+
+        // Simpan path ke variabel class
+        _directoryPath = targetFolder;
         _filePath = Path.Combine(_directoryPath, outputFileName);
 
         // Initial UI state
-        startButton.gameObject.SetActive(true);
-        stopButton .gameObject.SetActive(false);
+        if (startButton) startButton.gameObject.SetActive(true);
+        if (stopButton)  stopButton .gameObject.SetActive(false);
     }
 
     private void OnEnable()
     {
-        startButton.onClick.AddListener(OnStartClicked);
-        stopButton .onClick.AddListener(OnStopClicked);
+        if (startButton) startButton.onClick.AddListener(OnStartClicked);
+        if (stopButton)  stopButton .onClick.AddListener(OnStopClicked);
     }
 
     private void OnDisable()
     {
-        startButton.onClick.RemoveListener(OnStartClicked);
-        stopButton .onClick.RemoveListener(OnStopClicked);
+        if (startButton) startButton.onClick.RemoveListener(OnStartClicked);
+        if (stopButton)  stopButton .onClick.RemoveListener(OnStopClicked);
     }
 
     #endregion
@@ -71,15 +85,15 @@ public class RecordAudio : MonoBehaviour
     private void OnStartClicked()
     {
         StartRecording();
-        startButton.gameObject.SetActive(false);
-        stopButton .gameObject.SetActive(true);
+        if (startButton) startButton.gameObject.SetActive(false);
+        if (stopButton)  stopButton .gameObject.SetActive(true);
     }
 
     private void OnStopClicked()
     {
         StopRecording();
-        stopButton .gameObject.SetActive(false);
-        startButton.gameObject.SetActive(true);
+        if (stopButton)  stopButton .gameObject.SetActive(false);
+        if (startButton) startButton.gameObject.SetActive(true);
     }
 
     #endregion
@@ -94,18 +108,11 @@ public class RecordAudio : MonoBehaviour
             return;
         }
 
-        // Pick the device
-        string device = string.IsNullOrEmpty(micDevice)
-            ? Microphone.devices[0]
-            : micDevice;
+        string device = string.IsNullOrEmpty(micDevice) ? Microphone.devices[0] : micDevice;
 
-        // Begin recording
-        _recordedClip = Microphone.Start(device, 
-            loop: false, 
-            lengthSec: maxLengthSec, 
-            frequency: sampleRate);
+        _recordedClip = Microphone.Start(device, loop: false, lengthSec: maxLengthSec, frequency: sampleRate);
+        _startTime    = Time.realtimeSinceStartup;
 
-        _startTime = Time.realtimeSinceStartup;
         Debug.Log($"Recording started on '{device}'");
     }
 
@@ -114,20 +121,18 @@ public class RecordAudio : MonoBehaviour
         if (_recordedClip == null)
             return;
 
-        // End the mic capture
         Microphone.End(null);
 
-        // Determine actual recorded length
         float recordedSeconds = Time.realtimeSinceStartup - _startTime;
-
-        // Trim the clip to that exact length
         var trimmed = TrimClip(_recordedClip, recordedSeconds);
 
-        // Save via your existing WavUtility
         WavUtility.Save(_filePath, trimmed);
         Debug.Log($"Recording saved to: {_filePath}");
 
         _recordedClip = null;
+
+        // Trigger event agar ChatManager bisa upload
+        OnSaved?.Invoke(_filePath);
     }
 
     private AudioClip TrimClip(AudioClip clip, float length)
