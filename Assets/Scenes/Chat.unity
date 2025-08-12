@@ -631,8 +631,8 @@ RectTransform:
   m_Children:
   - {fileID: 1808596508}
   - {fileID: 943312374}
-  - {fileID: 1485662266}
   - {fileID: 1874907578}
+  - {fileID: 1485662266}
   m_Father: {fileID: 1135555575}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
@@ -4167,6 +4167,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2023204076}
   - component: {fileID: 2023204077}
+  - component: {fileID: 2023204078}
   m_Layer: 0
   m_Name: ChatManager
   m_TagString: Untagged
@@ -4222,8 +4223,22 @@ MonoBehaviour:
   thinkingAlpha: 1
   anim: {fileID: 1013193001}
   animCrossFadeTime: 0.3
+  _scrollRect: {fileID: 1086355613}
   animatorLayerIndex: 0
   CurrentUserId: Alice
+--- !u!114 &2023204078
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2023204075}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac6edfc88db442c4c9df625c38594955, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  scrollRect: {fileID: 1086355613}
 --- !u!1 &2100299455
 GameObject:
   m_ObjectHideFlags: 0

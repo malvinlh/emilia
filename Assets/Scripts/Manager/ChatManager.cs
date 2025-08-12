@@ -45,6 +45,9 @@ public class ChatManager : MonoBehaviour
     [SerializeField] private Animator anim;
     [SerializeField] private float animCrossFadeTime = 0.3f;
 
+    [Header("Scroll")]
+    [SerializeField] private ScrollRect _scrollRect;   // <— drag ScrollRect "Scrollable" di Inspector
+
     #endregion
 
     #region Constants & Fields
@@ -307,19 +310,11 @@ public class ChatManager : MonoBehaviour
     /// - Saat recording: mic (stop) terlihat, send tersembunyi.
     /// - Saat ada teks di input: send terlihat, mic tersembunyi.
     /// - Saat kosong & tidak recording: mic terlihat, send tersembunyi.
-    /// - Saat awaiting: keduanya disembunyikan.
+    /// - (Menunggu AI: tidak menyembunyikan; hanya set interactable via UpdateOtherInteractables.)
     /// </summary>
     private void UpdateMicAndSendVisibility()
     {
         bool hasText = !string.IsNullOrWhiteSpace(_inputField != null ? _inputField.text : null);
-
-        // if (_isAwaitingResponse)
-        // {
-        //     // Kunci UI input utama saat menunggu → sembunyikan keduanya
-        //     if (_sendButton != null) _sendButton.gameObject.SetActive(false);
-        //     if (_recorder  != null)  _recorder.SetUIState(_isMicOn, /*uiEnabled*/ false, /*forceHide*/ true);
-        //     return;
-        // }
 
         if (_isMicOn)
         {
@@ -354,22 +349,23 @@ public class ChatManager : MonoBehaviour
         // Mic/Send pakai SetActive → atur lewat helper khusus
         UpdateMicAndSendVisibility();
 
-        // Kontrol lainnya masih aman pakai interactable
+        // Kontrol lainnya: hanya ubah interactable (tidak hide)
         UpdateOtherInteractables();
     }
 
     private void UpdateOtherInteractables()
     {
-        // Reasoning buttons
-        // if (_reasoningSendButton != null)
-        //     _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
-        // if (_reasoningStopButton != null)
-        //     _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
+        // Reasoning buttons tetap ada; nonaktif saat menunggu
+        // (kalau ingin aktif terus, tinggal bool ke true)
+        if (_reasoningSendButton != null)
+            _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
+        if (_reasoningStopButton != null)
+            _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
 
-        // Tombol lain & input field
-        // if (_newChatButton != null) _newChatButton.interactable = !_isAwaitingResponse;
-        if (_inputField    != null) _inputField.interactable    = !_isAwaitingResponse;
-        // _sendButton.interactable tidak dipakai; visibilitasnya diatur SetActive di UpdateMicAndSendVisibility
+        // Input field aktif/nonaktif saat menunggu
+        if (_inputField != null) _inputField.interactable = !_isAwaitingResponse;
+
+        // Mic: saat menunggu AI, tetap terlihat tapi dibuat non-interactable oleh RecordAudio.SetUIState(waitingForAI)
     }
 
     #endregion
@@ -1015,6 +1011,7 @@ public class ChatManager : MonoBehaviour
                 var go   = Instantiate(_aiBubblePrefab, _chatContentParent);
                 var ctrl = go.GetComponent<ChatBubbleController>();
                 StartCoroutine(AnimateTyping(ctrl));
+                RequestScrollToBottom(); // <— auto scroll saat typing muncul
                 continue;
             }
 
@@ -1048,6 +1045,9 @@ public class ChatManager : MonoBehaviour
             var c1   = g1.GetComponent<ChatBubbleController>();
             c1.SetText(m.Text);
         }
+
+        // setelah rebuild, pastikan scroll turun
+        RequestScrollToBottom();
     }
 
     private void CreateBubble(string message, bool isUser)
@@ -1055,6 +1055,9 @@ public class ChatManager : MonoBehaviour
         var prefab = isUser ? _userBubblePrefab : _aiBubblePrefab;
         var go     = Instantiate(prefab, _chatContentParent);
         go.GetComponent<ChatBubbleController>()?.SetText(message);
+
+        // auto scroll ketika bubble baru dibuat
+        RequestScrollToBottom();
     }
 
     private void ClearChat()
@@ -1072,7 +1075,38 @@ public class ChatManager : MonoBehaviour
             ctrl.SetText(dots[i]);
             i = (i + 1) % dots.Length;
             yield return new WaitForSeconds(0.5f);
+            // saat animasi berjalan, jaga scroll tetap di bawah jika user tidak interaksi
+            RequestScrollToBottom();
         }
+    }
+
+    #endregion
+
+    #region Auto Scroll
+
+    private Coroutine _scrollCo;
+
+    /// <summary> Minta scroll pindah ke bawah setelah layout selesai update. </summary>
+    private void RequestScrollToBottom()
+    {
+        if (_scrollRect == null || _scrollRect.content == null) return;
+        if (_scrollCo != null) StopCoroutine(_scrollCo);
+        _scrollCo = StartCoroutine(CoScrollToBottom());
+    }
+
+    private IEnumerator CoScrollToBottom()
+    {
+        // tunggu frame ini supaya layout memperbarui ukuran konten
+        yield return null;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(_scrollRect.content);
+        _scrollRect.verticalNormalizedPosition = 0f;
+
+        // jaga-jaga ada konten dinamis; lakukan sekali lagi
+        yield return null;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(_scrollRect.content);
+        _scrollRect.verticalNormalizedPosition = 0f;
+
+        _scrollCo = null;
     }
 
     #endregion

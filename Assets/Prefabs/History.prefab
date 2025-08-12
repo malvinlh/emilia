@@ -422,7 +422,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _labelText: {fileID: 0}
   _trashIcon: {fileID: 0}
-  _maxLabelChars: 35
+  _maxLabelChars: 28
   _ellipsis: "\u2026"
 --- !u!114 &1659724369190166918
 MonoBehaviour:
