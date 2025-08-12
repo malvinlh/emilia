@@ -374,13 +374,33 @@ public class ChatManager : MonoBehaviour
 
     private void UpdateOtherInteractables()
     {
+        bool waitingGlobal = (_isAwaitingResponse || IsAnyTyping);
+
+        // Reasoning buttons
         if (_reasoningSendButton != null)
             _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
         if (_reasoningStopButton != null)
             _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
 
-        if (_inputField != null) _inputField.interactable = !_isAwaitingResponse;
-        // Mic interactivity diatur via RecordAudio.SetUIState(waitingForAI)
+        // === Kunci Input Field secara GLOBAL saat ada typing di mana pun ===
+        if (_inputField != null)
+        {
+            // readOnly memastikan teks tidak bisa diubah walau masih fokus
+            _inputField.readOnly     = waitingGlobal;
+            _inputField.interactable = !waitingGlobal;
+
+            // Jika saat ini sedang dikunci dan field masih fokus, lepaskan fokus
+            if (waitingGlobal && _inputField.isFocused)
+            {
+                _inputField.DeactivateInputField(); // cegah input selanjutnya
+                // Opsional: rapikan posisi caret agar tidak ada highlight menggantung
+                int endPos = string.IsNullOrEmpty(_inputField.text) ? 0 : _inputField.text.Length;
+                _inputField.caretPosition  = endPos;
+                _inputField.stringPosition = endPos;
+            }
+        }
+
+        // Mic interactivity diatur via RecordAudio.SetUIState(waitingForAI) di UpdateMicAndSendVisibility()
     }
 
     #endregion
@@ -514,9 +534,10 @@ public class ChatManager : MonoBehaviour
         ClearChat();
 
         // Kalau convo ini sedang typing → treat as awaiting (untuk kontrol lain),
-        // mic tetap dikontrol global via IsAnyTyping.
+        // mic & input dikontrol global via IsAnyTyping.
         SetAwaiting(_isTyping.Contains(conversationId));
-        UpdateMicAndSendVisibility(); // reflect global typing segera
+        UpdateMicAndSendVisibility();
+        UpdateOtherInteractables();
 
         if (_messageCache.TryGetValue(conversationId, out var cached))
             RebuildChatUI(conversationId);
@@ -541,7 +562,8 @@ public class ChatManager : MonoBehaviour
                 }
 
                 SetAwaiting(typing);
-                UpdateMicAndSendVisibility(); // reflect global typing lagi setelah fetch
+                UpdateMicAndSendVisibility();
+                UpdateOtherInteractables();
 
                 RebuildChatUI(conversationId);
             },
@@ -717,7 +739,8 @@ public class ChatManager : MonoBehaviour
             _recorder.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
 
         _isTyping.Add(convoId);
-        UpdateMicAndSendVisibility(); // <<< global lock segera
+        UpdateMicAndSendVisibility(); // global lock (mic)
+        UpdateOtherInteractables();   // global lock (input)
 
         _messageCache[convoId].Add(new Message {
             Id             = TypingPlaceholderId,
@@ -739,7 +762,8 @@ public class ChatManager : MonoBehaviour
             onSuccess: response =>
             {
                 _isTyping.Remove(convoId);
-                UpdateMicAndSendVisibility(); // <<< lepaskan lock jika tak ada typing lain
+                UpdateMicAndSendVisibility(); // lepaskan lock jika tak ada typing lain
+                UpdateOtherInteractables();
 
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 
@@ -773,7 +797,8 @@ public class ChatManager : MonoBehaviour
             {
                 Debug.LogError($"Chat API error: {err}");
                 _isTyping.Remove(convoId);
-                UpdateMicAndSendVisibility(); // <<< lepaskan lock jika tak ada typing lain
+                UpdateMicAndSendVisibility();
+                UpdateOtherInteractables();
 
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 
@@ -796,7 +821,8 @@ public class ChatManager : MonoBehaviour
             _recorder.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
 
         _isTyping.Add(convoId);
-        UpdateMicAndSendVisibility(); // <<< global lock segera
+        UpdateMicAndSendVisibility();
+        UpdateOtherInteractables();
 
         _messageCache[convoId].Add(new Message {
             Id             = TypingPlaceholderId,
@@ -816,7 +842,8 @@ public class ChatManager : MonoBehaviour
             onSuccess: res =>
             {
                 _isTyping.Remove(convoId);
-                UpdateMicAndSendVisibility(); // <<< lepaskan lock jika tak ada typing lain
+                UpdateMicAndSendVisibility();
+                UpdateOtherInteractables();
 
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 
@@ -873,7 +900,8 @@ public class ChatManager : MonoBehaviour
             {
                 Debug.LogError($"Agentic API error: {err}");
                 _isTyping.Remove(convoId);
-                UpdateMicAndSendVisibility(); // <<< lepaskan lock jika tak ada typing lain
+                UpdateMicAndSendVisibility();
+                UpdateOtherInteractables();
 
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 

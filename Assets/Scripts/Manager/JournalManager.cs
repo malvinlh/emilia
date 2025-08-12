@@ -33,6 +33,7 @@ public class JournalManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI deleteTitleText; // Teks konfirmasi (opsional)
     [SerializeField] private Button          deleteYesButton;
     [SerializeField] private Button          deleteNoButton;
+    [SerializeField] private Button          deleteNoButton2;
 
     [Header("Validation (Optional)")]
     [SerializeField] private TextMeshProUGUI validationLabel; // tempat pesan error
@@ -86,6 +87,9 @@ public class JournalManager : MonoBehaviour
 
         if (deleteNoButton != null)
             deleteNoButton.onClick.AddListener(() => ShowOnly(homeCanvas));
+
+        if (deleteNoButton2 != null)
+            deleteNoButton2.onClick.AddListener(() => ShowOnly(homeCanvas));
 
         if (deleteYesButton != null)
         {
