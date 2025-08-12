@@ -3661,6 +3661,7 @@ MonoBehaviour:
   blinkMinAlpha: 0.45
   blinkMaxAlpha: 1
   blinkSpeed: 2
+  _inputField: {fileID: 8594300957459492071}
 --- !u!82 &1967882289
 AudioSource:
   m_ObjectHideFlags: 0
@@ -4224,6 +4225,7 @@ MonoBehaviour:
   anim: {fileID: 1013193001}
   animCrossFadeTime: 0.3
   _scrollRect: {fileID: 1086355613}
+  _autoScrollThreshold: 0.05
   animatorLayerIndex: 0
   CurrentUserId: Alice
 --- !u!114 &2023204078

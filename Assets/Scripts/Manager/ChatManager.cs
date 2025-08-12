@@ -46,7 +46,10 @@ public class ChatManager : MonoBehaviour
     [SerializeField] private float animCrossFadeTime = 0.3f;
 
     [Header("Scroll")]
-    [SerializeField] private ScrollRect _scrollRect;   // <— drag ScrollRect "Scrollable" di Inspector
+    [SerializeField] private ScrollRect _scrollRect;
+    [SerializeField, Range(0f, 0.2f)] private float _autoScrollThreshold = 0.05f; // 0 = bottom, 1 = top
+    private bool _autoScrollEnabled = true;
+    private Coroutine _scrollCo;
 
     #endregion
 
@@ -83,6 +86,12 @@ public class ChatManager : MonoBehaviour
     private readonly Dictionary<string, int> _lastSummarizedPairCount = new();
 
     private Coroutine _switchCo;
+
+    // autoscroll typing hanya sekali per conversation
+    private readonly HashSet<string> _typingAutoscrolled = new();
+
+    // === NEW: flag global — true jika ada typing di conversation manapun
+    private bool IsAnyTyping => _isTyping != null && _isTyping.Count > 0;
 
     #endregion
 
@@ -152,21 +161,23 @@ public class ChatManager : MonoBehaviour
         if (_reasoningSendButton != null) _reasoningSendButton.onClick.AddListener(EnterReasoningMode);
         if (_reasoningStopButton != null) _reasoningStopButton.onClick.AddListener(ExitReasoningMode);
 
-        // ======== STATE AWAL (Rule 1) ========
+        if (_scrollRect != null)
+            _scrollRect.onValueChanged.AddListener(OnScrollChanged);
+
+        // ======== STATE AWAL ========
         if (_inputField != null)
         {
             _inputField.text = "";
             _inputField.onValueChanged.AddListener(OnInputChanged);
         }
-        // Send button disembunyikan (pakai GameObject)
         if (_sendButton != null) _sendButton.gameObject.SetActive(false);
 
         _isReasoningMode = false;
         _isMicOn         = _recorder != null && _recorder.IsRecording;
 
         ApplyReasoningVisibilityByMode();
-        UpdateMicAndSendVisibility();   // atur visibilitas mic/send sesuai teks awal
-        UpdateOtherInteractables();     // selain mic/send, tetap boleh pakai interactable
+        UpdateMicAndSendVisibility();
+        UpdateOtherInteractables();
 
         _deleteNoButton?.onClick.AddListener(() =>
         {
@@ -178,7 +189,6 @@ public class ChatManager : MonoBehaviour
 
     private void OnInputChanged(string _)
     {
-        // ======== Rule (2): saat ada teks → mic hide, send show (pakai SetActive) ========
         UpdateMicAndSendVisibility();
     }
 
@@ -194,13 +204,14 @@ public class ChatManager : MonoBehaviour
         _lastSummarizedPairCount.Clear();
         _userConvs.Clear();
         _currentConversationId = null;
+        _typingAutoscrolled.Clear();
         ClearChat();
 
         _isReasoningMode = false;
         _isMicOn         = false;
 
         ApplyReasoningVisibilityByMode();
-        UpdateMicAndSendVisibility();
+        UpdateMicAndSendVisibility();  // <- penting setelah _isTyping.Clear()
         UpdateOtherInteractables();
         FetchAndPopulateHistory();
     }
@@ -214,13 +225,14 @@ public class ChatManager : MonoBehaviour
         _lastSummarizedPairCount.Clear();
         _userConvs.Clear();
         _currentConversationId = null;
+        _typingAutoscrolled.Clear();
         ClearChat();
 
         _isReasoningMode = false;
         _isMicOn         = false;
 
         ApplyReasoningVisibilityByMode();
-        UpdateMicAndSendVisibility();
+        UpdateMicAndSendVisibility();  // <- penting setelah _isTyping.Clear()
         UpdateOtherInteractables();
     }
 
@@ -233,7 +245,6 @@ public class ChatManager : MonoBehaviour
         _isReasoningMode = true;
         StartSwitchWithFade(ThinkingHash, thinkingAlpha);
         ApplyReasoningVisibilityByMode();
-        // tidak mengubah vis mic/send; tetap dikontrol oleh input text
         UpdateOtherInteractables();
     }
 
@@ -299,42 +310,53 @@ public class ChatManager : MonoBehaviour
 
     private void HandleMicStateChanged(bool isOn)
     {
-        // Dipanggil RecordAudio saat tombol mic ditekan (toggle)
         _isMicOn = isOn;
         UpdateMicAndSendVisibility();
         UpdateOtherInteractables();
     }
 
     /// <summary>
-    /// Atur tampil/hilangnya mic & send sesuai RULE:
-    /// - Saat recording: mic (stop) terlihat, send tersembunyi.
-    /// - Saat ada teks di input: send terlihat, mic tersembunyi.
-    /// - Saat kosong & tidak recording: mic terlihat, send tersembunyi.
-    /// - (Menunggu AI: tidak menyembunyikan; hanya set interactable via UpdateOtherInteractables.)
+    /// - Recording: mic terlihat, send hidden.
+    /// - Ada teks:  send terlihat, mic hidden.
+    /// - Kosong:    mic terlihat, send hidden.
+    /// - Menunggu AI / ada typing di mana pun: mic tetap terlihat tapi non-interactable (waitingForAI).
     /// </summary>
     private void UpdateMicAndSendVisibility()
     {
         bool hasText = !string.IsNullOrWhiteSpace(_inputField != null ? _inputField.text : null);
+        bool waitingGlobal = (_isAwaitingResponse || IsAnyTyping);
 
         if (_isMicOn)
         {
-            // Sedang recording → tampilkan UI mic (stop/pulsing), sembunyikan send
             if (_sendButton != null) _sendButton.gameObject.SetActive(false);
-            if (_recorder  != null)  _recorder.SetUIState(true, /*uiEnabled*/ true, /*forceHide*/ false);
+            if (_recorder  != null)  _recorder.SetUIState(
+                isOn: true,
+                uiEnabled: true,
+                forceHide: false,
+                waitingForAI: waitingGlobal
+            );
         }
         else
         {
             if (hasText)
             {
-                // Ada teks → tampilkan send, sembunyikan mic
                 if (_sendButton != null) _sendButton.gameObject.SetActive(true);
-                if (_recorder  != null)  _recorder.SetUIState(false, /*uiEnabled*/ false, /*forceHide*/ true);
+                if (_recorder  != null)  _recorder.SetUIState(
+                    isOn: false,
+                    uiEnabled: false,
+                    forceHide: true,
+                    waitingForAI: waitingGlobal
+                );
             }
             else
             {
-                // Kosong → tampilkan mic, sembunyikan send
                 if (_sendButton != null) _sendButton.gameObject.SetActive(false);
-                if (_recorder  != null)  _recorder.SetUIState(false, /*uiEnabled*/ true, /*forceHide*/ false);
+                if (_recorder  != null)  _recorder.SetUIState(
+                    isOn: false,
+                    uiEnabled: true,
+                    forceHide: false,
+                    waitingForAI: waitingGlobal
+                );
             }
         }
     }
@@ -346,26 +368,19 @@ public class ChatManager : MonoBehaviour
     private void SetAwaiting(bool value)
     {
         _isAwaitingResponse = value;
-        // Mic/Send pakai SetActive → atur lewat helper khusus
         UpdateMicAndSendVisibility();
-
-        // Kontrol lainnya: hanya ubah interactable (tidak hide)
         UpdateOtherInteractables();
     }
 
     private void UpdateOtherInteractables()
     {
-        // Reasoning buttons tetap ada; nonaktif saat menunggu
-        // (kalau ingin aktif terus, tinggal bool ke true)
         if (_reasoningSendButton != null)
             _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
         if (_reasoningStopButton != null)
             _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
 
-        // Input field aktif/nonaktif saat menunggu
         if (_inputField != null) _inputField.interactable = !_isAwaitingResponse;
-
-        // Mic: saat menunggu AI, tetap terlihat tapi dibuat non-interactable oleh RecordAudio.SetUIState(waitingForAI)
+        // Mic interactivity diatur via RecordAudio.SetUIState(waitingForAI)
     }
 
     #endregion
@@ -379,7 +394,6 @@ public class ChatManager : MonoBehaviour
             Debug.LogWarning($"Audio file not found: {filePath}");
             return;
         }
-        // Transkrip → kirim langsung sebagai pesan user (tanpa lewat input field)
         StartCoroutine(TranscribeAndSendDirect(filePath));
     }
 
@@ -419,7 +433,6 @@ public class ChatManager : MonoBehaviour
             SetAwaiting(false);
         }
 
-        // Reset ke state awal (input kosong, send hide, mic show)
         if (_inputField != null) _inputField.text = "";
         _isMicOn = false;
         UpdateMicAndSendVisibility();
@@ -500,6 +513,11 @@ public class ChatManager : MonoBehaviour
         _currentConversationId = conversationId;
         ClearChat();
 
+        // Kalau convo ini sedang typing → treat as awaiting (untuk kontrol lain),
+        // mic tetap dikontrol global via IsAnyTyping.
+        SetAwaiting(_isTyping.Contains(conversationId));
+        UpdateMicAndSendVisibility(); // reflect global typing segera
+
         if (_messageCache.TryGetValue(conversationId, out var cached))
             RebuildChatUI(conversationId);
 
@@ -510,7 +528,8 @@ public class ChatManager : MonoBehaviour
             {
                 _messageCache[conversationId] = new List<Message>(msgs);
 
-                if (_isTyping.Contains(conversationId))
+                bool typing = _isTyping.Contains(conversationId);
+                if (typing)
                 {
                     _messageCache[conversationId].Add(new Message {
                         Id             = TypingPlaceholderId,
@@ -520,6 +539,9 @@ public class ChatManager : MonoBehaviour
                         SentAt         = DateTime.UtcNow
                     });
                 }
+
+                SetAwaiting(typing);
+                UpdateMicAndSendVisibility(); // reflect global typing lagi setelah fetch
 
                 RebuildChatUI(conversationId);
             },
@@ -560,11 +582,9 @@ public class ChatManager : MonoBehaviour
                 StartCoroutine(SendUserMessage(text, _currentConversationId));
         }
 
-        // Kembali ke state awal setelah kirim manual
         UpdateMicAndSendVisibility();
     }
 
-    // tombol reasoning send khusus (opsional)
     private void OnSendReasoningClicked()
     {
         var text = _inputField.text.Trim();
@@ -690,13 +710,14 @@ public class ChatManager : MonoBehaviour
 
     private IEnumerator HandleAITurn(string userMessage, string convoId)
     {
-        // Masuk mode "menunggu AI"
         SetAwaiting(true);
-        // Mic tetap terlihat, tapi non-interactable selama menunggu
+
+        // boleh dipertahankan, tapi mic juga akan di-lock via global IsAnyTyping
         if (_recorder != null)
             _recorder.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
 
         _isTyping.Add(convoId);
+        UpdateMicAndSendVisibility(); // <<< global lock segera
 
         _messageCache[convoId].Add(new Message {
             Id             = TypingPlaceholderId,
@@ -718,6 +739,8 @@ public class ChatManager : MonoBehaviour
             onSuccess: response =>
             {
                 _isTyping.Remove(convoId);
+                UpdateMicAndSendVisibility(); // <<< lepaskan lock jika tak ada typing lain
+
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 
                 var aiMsg = new Message {
@@ -730,11 +753,15 @@ public class ChatManager : MonoBehaviour
                 _messageCache[convoId].Add(aiMsg);
 
                 if (_currentConversationId == convoId)
+                {
                     RebuildChatUI(convoId);
+                    RequestScrollToBottom(force: true);
+                }
+
+                _typingAutoscrolled.Remove(convoId);
 
                 SaveAIMessage(response, convoId);
 
-                // Keluar mode "menunggu AI"
                 SetAwaiting(false);
                 if (_recorder != null)
                     _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
@@ -746,9 +773,12 @@ public class ChatManager : MonoBehaviour
             {
                 Debug.LogError($"Chat API error: {err}");
                 _isTyping.Remove(convoId);
+                UpdateMicAndSendVisibility(); // <<< lepaskan lock jika tak ada typing lain
+
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 
-                // Keluar mode "menunggu AI" (gagal)
+                _typingAutoscrolled.Remove(convoId);
+
                 SetAwaiting(false);
                 if (_recorder != null)
                     _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
@@ -761,12 +791,12 @@ public class ChatManager : MonoBehaviour
 
     private IEnumerator HandleAgenticTurn(string userMessage, string convoId)
     {
-        // Masuk mode "menunggu AI" (agentic)
         SetAwaiting(true);
         if (_recorder != null)
             _recorder.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
 
         _isTyping.Add(convoId);
+        UpdateMicAndSendVisibility(); // <<< global lock segera
 
         _messageCache[convoId].Add(new Message {
             Id             = TypingPlaceholderId,
@@ -786,6 +816,8 @@ public class ChatManager : MonoBehaviour
             onSuccess: res =>
             {
                 _isTyping.Remove(convoId);
+                UpdateMicAndSendVisibility(); // <<< lepaskan lock jika tak ada typing lain
+
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 
                 if (!string.IsNullOrWhiteSpace(res.reasoning))
@@ -813,9 +845,13 @@ public class ChatManager : MonoBehaviour
                 StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(convoId, BotSender, bMsg.Text));
 
                 if (_currentConversationId == convoId)
+                {
                     RebuildChatUI(convoId);
+                    RequestScrollToBottom(force: true);
+                }
 
-                // Keluar mode "menunggu AI"
+                _typingAutoscrolled.Remove(convoId);
+
                 SetAwaiting(false);
                 if (_recorder != null)
                     _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
@@ -837,9 +873,12 @@ public class ChatManager : MonoBehaviour
             {
                 Debug.LogError($"Agentic API error: {err}");
                 _isTyping.Remove(convoId);
+                UpdateMicAndSendVisibility(); // <<< lepaskan lock jika tak ada typing lain
+
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
 
-                // Keluar mode "menunggu AI" (gagal)
+                _typingAutoscrolled.Remove(convoId);
+
                 SetAwaiting(false);
                 if (_recorder != null)
                     _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
@@ -1011,7 +1050,13 @@ public class ChatManager : MonoBehaviour
                 var go   = Instantiate(_aiBubblePrefab, _chatContentParent);
                 var ctrl = go.GetComponent<ChatBubbleController>();
                 StartCoroutine(AnimateTyping(ctrl));
-                RequestScrollToBottom(); // <— auto scroll saat typing muncul
+
+                // AUTOSCROLL TYPING: hanya SEKALI saat pertama kali typing muncul
+                if (!_typingAutoscrolled.Contains(convoId))
+                {
+                    RequestScrollToBottom(force: false);
+                    _typingAutoscrolled.Add(convoId);
+                }
                 continue;
             }
 
@@ -1046,8 +1091,7 @@ public class ChatManager : MonoBehaviour
             c1.SetText(m.Text);
         }
 
-        // setelah rebuild, pastikan scroll turun
-        RequestScrollToBottom();
+        // Tidak auto-scroll di sini; caller yang menentukan.
     }
 
     private void CreateBubble(string message, bool isUser)
@@ -1056,8 +1100,8 @@ public class ChatManager : MonoBehaviour
         var go     = Instantiate(prefab, _chatContentParent);
         go.GetComponent<ChatBubbleController>()?.SetText(message);
 
-        // auto scroll ketika bubble baru dibuat
-        RequestScrollToBottom();
+        // USER BUBBLE: paksa scroll SEKALI ketika dibuat
+        RequestScrollToBottom(force: true);
     }
 
     private void ClearChat()
@@ -1075,8 +1119,6 @@ public class ChatManager : MonoBehaviour
             ctrl.SetText(dots[i]);
             i = (i + 1) % dots.Length;
             yield return new WaitForSeconds(0.5f);
-            // saat animasi berjalan, jaga scroll tetap di bawah jika user tidak interaksi
-            RequestScrollToBottom();
         }
     }
 
@@ -1084,28 +1126,32 @@ public class ChatManager : MonoBehaviour
 
     #region Auto Scroll
 
-    private Coroutine _scrollCo;
+    private void OnScrollChanged(Vector2 _)
+    {
+        if (_scrollRect == null) return;
+        // Aktifkan autoscroll hanya kalau user berada dekat bawah
+        _autoScrollEnabled = (_scrollRect.verticalNormalizedPosition <= _autoScrollThreshold);
+    }
 
     /// <summary> Minta scroll pindah ke bawah setelah layout selesai update. </summary>
-    private void RequestScrollToBottom()
+    private void RequestScrollToBottom(bool force = false)
     {
         if (_scrollRect == null || _scrollRect.content == null) return;
+        if (!force && !_autoScrollEnabled) return; // hormati posisi user kecuali dipaksa
         if (_scrollCo != null) StopCoroutine(_scrollCo);
         _scrollCo = StartCoroutine(CoScrollToBottom());
     }
 
     private IEnumerator CoScrollToBottom()
     {
-        // tunggu frame ini supaya layout memperbarui ukuran konten
+        // tunggu layout update
         yield return null;
         LayoutRebuilder.ForceRebuildLayoutImmediate(_scrollRect.content);
         _scrollRect.verticalNormalizedPosition = 0f;
-
-        // jaga-jaga ada konten dinamis; lakukan sekali lagi
+        // satu frame ekstra (opsional)
         yield return null;
         LayoutRebuilder.ForceRebuildLayoutImmediate(_scrollRect.content);
         _scrollRect.verticalNormalizedPosition = 0f;
-
         _scrollCo = null;
     }
 

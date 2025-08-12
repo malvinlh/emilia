@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 
 [RequireComponent(typeof(AudioSource))]
 public class RecordAudio : MonoBehaviour
@@ -21,6 +22,9 @@ public class RecordAudio : MonoBehaviour
     [SerializeField] private float       blinkMinAlpha = 0.45f;
     [SerializeField] private float       blinkMaxAlpha = 1.0f;
     [SerializeField] private float       blinkSpeed    = 2.0f; // semakin besar, semakin cepat kedip
+
+    // (Opsional) referensi input field — TIDAK lagi dimodifikasi dari kelas ini.
+    [SerializeField] private TMP_InputField _inputField;
 
     #endregion
 
@@ -52,8 +56,14 @@ public class RecordAudio : MonoBehaviour
         _filePath      = Path.Combine(_directoryPath, outputFileName);
 
         if (micButton != null)  micButton.onClick.AddListener(OnMicClicked);
-        if (micCanvasGroup == null && micButton != null)
-            micCanvasGroup = micButton.GetComponent<CanvasGroup>();
+
+        // Pastikan ada CanvasGroup agar alpha bisa diatur.
+        if (micCanvasGroup == null)
+        {
+            if (micButton != null) micCanvasGroup = micButton.GetComponent<CanvasGroup>();
+            if (micCanvasGroup == null && micButton != null)
+                micCanvasGroup = micButton.gameObject.AddComponent<CanvasGroup>();
+        }
 
         // State awal: mic terlihat (active) & tidak blinking
         ApplyMicVisibility(true);
@@ -75,6 +85,7 @@ public class RecordAudio : MonoBehaviour
     /// - isOn: status rekaman saat ini (untuk kontrol blinking)
     /// - uiEnabled: kalau terlihat, boleh diklik atau tidak
     /// - forceHide: paksa sembunyikan (GameObject.SetActive(false))
+    /// - waitingForAI: jika true → non-interactable (global lock saat AI mengetik)
     /// </summary>
     public void SetUIState(bool isOn, bool uiEnabled, bool forceHide, bool waitingForAI = false)
     {
@@ -89,11 +100,11 @@ public class RecordAudio : MonoBehaviour
         // Tampilkan mic
         ApplyMicVisibility(true);
 
-        // Kalau sedang menunggu AI → hanya disable interactable, tidak hide
+        // Kalau sedang menunggu AI → disable interactable, matikan blink (tapi tetap terlihat)
         if (waitingForAI)
         {
             ApplyMicInteractable(false);
-            ApplyBlink(false); // matikan blinking biar user tahu ini idle
+            ApplyBlink(false);
             return;
         }
 
@@ -108,6 +119,9 @@ public class RecordAudio : MonoBehaviour
 
     private void OnMicClicked()
     {
+        // Abaikan klik jika button tidak tersedia/interactable
+        if (micButton != null && !micButton.interactable) return;
+
         if (IsRecording) StopRecording();
         else             StartRecording();
     }
@@ -145,14 +159,26 @@ public class RecordAudio : MonoBehaviour
     {
         if (!IsRecording) return;
 
-        Microphone.End(null);
+        try
+        {
+            Microphone.End(null);
+        }
+        catch { /* noop */ }
+
         IsRecording = false;
 
-        float recordedSeconds = Time.realtimeSinceStartup - _startTime;
-        var trimmed = TrimClip(_recordedClip, recordedSeconds);
+        float recordedSeconds = Mathf.Max(0f, Time.realtimeSinceStartup - _startTime);
 
-        WavUtility.Save(_filePath, trimmed);
-        Debug.Log($"Recording saved to: {_filePath}");
+        if (_recordedClip != null && recordedSeconds > 0.01f)
+        {
+            var trimmed = TrimClip(_recordedClip, recordedSeconds);
+            WavUtility.Save(_filePath, trimmed);
+            Debug.Log($"Recording saved to: {_filePath}");
+        }
+        else
+        {
+            Debug.LogWarning("No valid audio recorded, skipping save.");
+        }
 
         _recordedClip = null;
 
@@ -169,6 +195,9 @@ public class RecordAudio : MonoBehaviour
     private AudioClip TrimClip(AudioClip clip, float length)
     {
         int samples = Mathf.Min((int)(length * clip.frequency), clip.samples);
+        samples = Mathf.Max(samples, 0);
+        if (clip == null || samples == 0) return clip;
+
         var data = new float[samples * clip.channels];
         clip.GetData(data, 0);
 
@@ -197,16 +226,48 @@ public class RecordAudio : MonoBehaviour
     {
         if (micButton != null)
             micButton.interactable = interactable;
+
+        // Sinkron juga ke CanvasGroup agar event raycast ikut nonaktif (aman dari klik)
+        if (micCanvasGroup != null)
+        {
+            micCanvasGroup.interactable   = interactable;
+            micCanvasGroup.blocksRaycasts = interactable;
+        }
     }
 
     private void ApplyBlink(bool shouldBlink)
     {
-        if (shouldBlink) StartBlink();
-        else             StopBlink();
+        if (shouldBlink)
+        {
+            // Disable input saat mic aktif
+            if (_inputField != null)
+            {
+                _inputField.interactable = false;
+                var placeholderText = _inputField.placeholder as TextMeshProUGUI;
+                if (placeholderText != null)
+                    placeholderText.text = "Listening...";
+            }
+
+            StartBlink();
+        }
+        else
+        {
+            // Enable input kembali
+            if (_inputField != null)
+            {
+                _inputField.interactable = true;
+                var placeholderText = _inputField.placeholder as TextMeshProUGUI;
+                if (placeholderText != null)
+                    placeholderText.text = "Write your message";
+            }
+
+            StopBlink();
+        }
     }
 
     private void StartBlink()
     {
+        // Catatan: tidak lagi mengubah _inputField dari sini.
         if (micCanvasGroup == null) return;
         if (_blinkCo != null) StopCoroutine(_blinkCo);
         _blinkCo = StartCoroutine(CoBlink());
