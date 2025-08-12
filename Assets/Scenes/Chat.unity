@@ -262,15 +262,15 @@ MonoBehaviour:
   normalBg: {r: 0, g: 0, b: 0, a: 0}
   hoverBg: {r: 0.89411765, g: 0.85490197, b: 0.9529412, a: 1}
   pressedBg: {r: 0.89411765, g: 0.85490197, b: 0.9529412, a: 1}
-  disabledBg: {r: 0, g: 0, b: 0, a: 0.2}
+  disabledBg: {r: 0.89411765, g: 0.85490197, b: 0.9529412, a: 1}
   normalExtra: {r: 0.95686275, g: 0.9647059, b: 0.98039216, a: 1}
   hoverExtra: {r: 0, g: 0, b: 0, a: 1}
   pressedExtra: {r: 0, g: 0, b: 0, a: 1}
-  disabledExtra: {r: 0.5, g: 0.5, b: 0.5, a: 1}
+  disabledExtra: {r: 1, g: 1, b: 1, a: 1}
   normalText: {r: 0.95686275, g: 0.9647059, b: 0.98039216, a: 1}
   hoverText: {r: 0, g: 0, b: 0, a: 1}
   pressedText: {r: 0, g: 0, b: 0, a: 1}
-  disabledText: {r: 0.5, g: 0.5, b: 0.5, a: 1}
+  disabledText: {r: 1, g: 1, b: 1, a: 1}
 --- !u!114 &19222352
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4226,6 +4226,7 @@ MonoBehaviour:
   animCrossFadeTime: 0.3
   _scrollRect: {fileID: 1086355613}
   _autoScrollThreshold: 0.05
+  _homeButton: {fileID: 19222350}
   animatorLayerIndex: 0
   CurrentUserId: Alice
 --- !u!114 &2023204078

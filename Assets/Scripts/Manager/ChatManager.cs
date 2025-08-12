@@ -50,6 +50,9 @@ public class ChatManager : MonoBehaviour
     [SerializeField, Range(0f, 0.2f)] private float _autoScrollThreshold = 0.05f; // 0 = bottom, 1 = top
     private bool _autoScrollEnabled = true;
     private Coroutine _scrollCo;
+    
+    [Header("Navigation")]
+    [SerializeField] private Button _homeButton; 
 
     #endregion
 
@@ -376,31 +379,37 @@ public class ChatManager : MonoBehaviour
     {
         bool waitingGlobal = (_isAwaitingResponse || IsAnyTyping);
 
-        // Reasoning buttons
+        // === Kunci toggle reasoning saat AI merespon ===
         if (_reasoningSendButton != null)
-            _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
-        if (_reasoningStopButton != null)
-            _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
+            _reasoningSendButton.interactable = !waitingGlobal && !_isReasoningMode;
 
-        // === Kunci Input Field secara GLOBAL saat ada typing di mana pun ===
+        if (_reasoningStopButton != null)
+            _reasoningStopButton.interactable = !waitingGlobal &&  _isReasoningMode;
+
+        // === Input Field terkunci saat AI merespon ===
         if (_inputField != null)
         {
-            // readOnly memastikan teks tidak bisa diubah walau masih fokus
             _inputField.readOnly     = waitingGlobal;
             _inputField.interactable = !waitingGlobal;
 
-            // Jika saat ini sedang dikunci dan field masih fokus, lepaskan fokus
             if (waitingGlobal && _inputField.isFocused)
             {
-                _inputField.DeactivateInputField(); // cegah input selanjutnya
-                // Opsional: rapikan posisi caret agar tidak ada highlight menggantung
+                _inputField.DeactivateInputField();
                 int endPos = string.IsNullOrEmpty(_inputField.text) ? 0 : _inputField.text.Length;
                 _inputField.caretPosition  = endPos;
                 _inputField.stringPosition = endPos;
             }
         }
 
-        // Mic interactivity diatur via RecordAudio.SetUIState(waitingForAI) di UpdateMicAndSendVisibility()
+        // === Kunci tombol Home saat AI merespon ===
+        if (_homeButton != null)
+            _homeButton.interactable = !waitingGlobal;
+
+        // === New Chat tetap bisa diinteraksi ===
+        if (_newChatButton != null)
+            _newChatButton.interactable = true;
+
+        // Mic interactivity tetap diatur via RecordAudio.SetUIState(waitingForAI)
     }
 
     #endregion
