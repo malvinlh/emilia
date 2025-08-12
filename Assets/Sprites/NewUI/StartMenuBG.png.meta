@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 9ca3850e26a7fb147a1a431cac912ed3
+guid: 2bc78ad991f588544a3640fd1cc3a8cb
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -3134766676913893479
-    second: Sidebar_0
+      213: -6241054358944466649
+    second: StartMenuBG_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -72,7 +72,7 @@ TextureImporter:
   platformSettings:
   - serializedVersion: 4
     buildTarget: DefaultTexturePlatform
-    maxTextureSize: 2048
+    maxTextureSize: 16384
     resizeAlgorithm: 0
     textureFormat: -1
     textureCompression: 0
@@ -96,42 +96,16 @@ TextureImporter:
     ignorePlatformSupport: 0
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
-  - serializedVersion: 4
-    buildTarget: Android
-    maxTextureSize: 2048
-    resizeAlgorithm: 0
-    textureFormat: -1
-    textureCompression: 1
-    compressionQuality: 50
-    crunchedCompression: 0
-    allowsAlphaSplitting: 0
-    overridden: 0
-    ignorePlatformSupport: 0
-    androidETC2FallbackOverride: 0
-    forceMaximumCompressionQuality_BC6H_BC7: 0
-  - serializedVersion: 4
-    buildTarget: WebGL
-    maxTextureSize: 2048
-    resizeAlgorithm: 0
-    textureFormat: -1
-    textureCompression: 1
-    compressionQuality: 50
-    crunchedCompression: 0
-    allowsAlphaSplitting: 0
-    overridden: 0
-    ignorePlatformSupport: 0
-    androidETC2FallbackOverride: 0
-    forceMaximumCompressionQuality_BC6H_BC7: 0
   spriteSheet:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: Sidebar_0
+      name: StartMenuBG_0
       rect:
         serializedVersion: 2
         x: 0
         y: 0
-        width: 828
+        width: 2560
         height: 1440
       alignment: 0
       pivot: {x: 0, y: 0}
@@ -141,8 +115,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 99fc0d8e0521f74d0800000000000000
-      internalID: -3134766676913893479
+      spriteID: 729363780225369a0800000000000000
+      internalID: -6241054358944466649
       vertices: []
       indices: 
       edges: []
@@ -161,7 +135,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      Sidebar_0: -3134766676913893479
+      StartMenuBG_0: -6241054358944466649
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

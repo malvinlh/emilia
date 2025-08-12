@@ -28,7 +28,7 @@ public class ChatManager : MonoBehaviour
     [SerializeField] private Button         _reasoningStopButton; // Toggle OFF
 
     [Header("Audio Recording")]
-    [SerializeField] private RecordAudio    _recorder; // pegang tombol mic start/stop sendiri, UI dikontrol via SetUIState
+    [SerializeField] private RecordAudio    _recorder; // single mic button dikelola RecordAudio
 
     [Header("Delete Confirmation UI")]
     [SerializeField] private GameObject     _deleteChatSetting;
@@ -37,13 +37,13 @@ public class ChatManager : MonoBehaviour
 
     [Header("Avatar Fade Settings")]
     [SerializeField] private Image[] _avatarImages;
-    [SerializeField] private float avatarFadeTime = 0.25f; // durasi fade-out dan fade-in masing-masing
-    [SerializeField] private float idleAlpha     = 1.0f;   // alpha saat idle setelah fade-in
-    [SerializeField] private float thinkingAlpha = 1.0f;   // alpha saat thinking setelah fade-in
+    [SerializeField] private float avatarFadeTime = 0.25f; // fade-out & fade-in
+    [SerializeField] private float idleAlpha     = 1.0f;
+    [SerializeField] private float thinkingAlpha = 1.0f;
 
     [Header("Animator Settings")]
     [SerializeField] private Animator anim;
-    [SerializeField] private float animCrossFadeTime = 0.3f; // tidak dipakai di mode switch-while-0, biarkan jika mau opsi lain
+    [SerializeField] private float animCrossFadeTime = 0.3f;
 
     #endregion
 
@@ -58,7 +58,6 @@ public class ChatManager : MonoBehaviour
     private static readonly Regex ConversationRegex =
         new Regex(@"cv(\d+)$", RegexOptions.Compiled);
 
-    // Ganti sesuai path state di Animator
     private static readonly int IdleHash     = Animator.StringToHash("Base Layer.idle-3");
     private static readonly int ThinkingHash = Animator.StringToHash("Base Layer.idle-2");
 
@@ -88,7 +87,6 @@ public class ChatManager : MonoBehaviour
 
     private void Awake()
     {
-        // Auto-collect semua Image avatar kalau array kosong
         if (_avatarImages == null || _avatarImages.Length == 0)
             _avatarImages = GetComponentsInChildren<Image>(true);
 
@@ -106,7 +104,7 @@ public class ChatManager : MonoBehaviour
         if (_recorder != null)
         {
             _recorder.OnSaved += OnAudioSaved;
-            _recorder.OnMicStateChanged += HandleMicStateChanged; // sinkron status mic
+            _recorder.OnMicStateChanged += HandleMicStateChanged;
         }
     }
 
@@ -151,12 +149,21 @@ public class ChatManager : MonoBehaviour
         if (_reasoningSendButton != null) _reasoningSendButton.onClick.AddListener(EnterReasoningMode);
         if (_reasoningStopButton != null) _reasoningStopButton.onClick.AddListener(ExitReasoningMode);
 
+        // ======== STATE AWAL (Rule 1) ========
+        if (_inputField != null)
+        {
+            _inputField.text = "";
+            _inputField.onValueChanged.AddListener(OnInputChanged);
+        }
+        // Send button disembunyikan (pakai GameObject)
+        if (_sendButton != null) _sendButton.gameObject.SetActive(false);
+
         _isReasoningMode = false;
         _isMicOn         = _recorder != null && _recorder.IsRecording;
 
         ApplyReasoningVisibilityByMode();
-        ApplyMicVisibilityByMode();
-        UpdateAllInteractables();
+        UpdateMicAndSendVisibility();   // atur visibilitas mic/send sesuai teks awal
+        UpdateOtherInteractables();     // selain mic/send, tetap boleh pakai interactable
 
         _deleteNoButton?.onClick.AddListener(() =>
         {
@@ -164,6 +171,12 @@ public class ChatManager : MonoBehaviour
             _pendingDeleteId = null;
         });
         _deleteYesButton?.onClick.AddListener(ConfirmDeleteConversation);
+    }
+
+    private void OnInputChanged(string _)
+    {
+        // ======== Rule (2): saat ada teks → mic hide, send show (pakai SetActive) ========
+        UpdateMicAndSendVisibility();
     }
 
     public void OnUserChanged(string newUserId)
@@ -184,9 +197,8 @@ public class ChatManager : MonoBehaviour
         _isMicOn         = false;
 
         ApplyReasoningVisibilityByMode();
-        ApplyMicVisibilityByMode();
-        UpdateAllInteractables();
-
+        UpdateMicAndSendVisibility();
+        UpdateOtherInteractables();
         FetchAndPopulateHistory();
     }
 
@@ -205,8 +217,8 @@ public class ChatManager : MonoBehaviour
         _isMicOn         = false;
 
         ApplyReasoningVisibilityByMode();
-        ApplyMicVisibilityByMode();
-        UpdateAllInteractables();
+        UpdateMicAndSendVisibility();
+        UpdateOtherInteractables();
     }
 
     #endregion
@@ -216,21 +228,18 @@ public class ChatManager : MonoBehaviour
     private void EnterReasoningMode()
     {
         _isReasoningMode = true;
-
         StartSwitchWithFade(ThinkingHash, thinkingAlpha);
-
         ApplyReasoningVisibilityByMode();
-        UpdateAllInteractables();
+        // tidak mengubah vis mic/send; tetap dikontrol oleh input text
+        UpdateOtherInteractables();
     }
 
     private void ExitReasoningMode()
     {
         _isReasoningMode = false;
-
         StartSwitchWithFade(IdleHash, idleAlpha);
-
         ApplyReasoningVisibilityByMode();
-        UpdateAllInteractables();
+        UpdateOtherInteractables();
     }
 
     private void StartSwitchWithFade(int targetStateHash, float appearAlpha)
@@ -239,26 +248,17 @@ public class ChatManager : MonoBehaviour
         _switchCo = StartCoroutine(CoSwitchAnimWithFade(targetStateHash, appearAlpha));
     }
 
-    /// <summary>
-    /// Fade OUT ke 0, ganti pose/state anim secara instan saat 0, lalu Fade IN.
-    /// </summary>
     private IEnumerator CoSwitchAnimWithFade(int targetHash, float appearAlpha)
     {
-        // 1) Fade OUT ke 0
         yield return CoFadeImages(0f, avatarFadeTime);
-
-        // 2) Ganti pose/state saat alpha 0 (instan, tanpa blend)
         anim.Play(targetHash, animatorLayerIndex, 0f);
-        anim.Update(0f); // terapkan pose baru segera
-
-        // 3) Fade IN ke alpha target (idleAlpha / thinkingAlpha)
+        anim.Update(0f);
         yield return CoFadeImages(appearAlpha, avatarFadeTime);
     }
 
     private IEnumerator CoFadeImages(float targetAlpha, float dur)
     {
         if (_avatarImages == null || _avatarImages.Length == 0) yield break;
-
         float t = 0f;
         float start = _avatarImages[0].color.a;
 
@@ -266,7 +266,6 @@ public class ChatManager : MonoBehaviour
         {
             t += Time.deltaTime;
             float a = Mathf.Lerp(start, targetAlpha, t / dur);
-
             for (int i = 0; i < _avatarImages.Length; i++)
             {
                 var c = _avatarImages[i].color;
@@ -275,8 +274,6 @@ public class ChatManager : MonoBehaviour
             }
             yield return null;
         }
-
-        // Snap ke target di akhir
         for (int i = 0; i < _avatarImages.Length; i++)
         {
             var c = _avatarImages[i].color;
@@ -295,53 +292,89 @@ public class ChatManager : MonoBehaviour
 
     #endregion
 
-    #region Mic Sync (UI & State)
+    #region Mic/Send Visibility (pakai GameObject.SetActive)
 
     private void HandleMicStateChanged(bool isOn)
     {
+        // Dipanggil RecordAudio saat tombol mic ditekan (toggle)
         _isMicOn = isOn;
-        ApplyMicVisibilityByMode();
-        UpdateAllInteractables();
+        UpdateMicAndSendVisibility();
+        UpdateOtherInteractables();
     }
 
-    private void ApplyMicVisibilityByMode()
+    /// <summary>
+    /// Atur tampil/hilangnya mic & send sesuai RULE:
+    /// - Saat recording: mic (stop) terlihat, send tersembunyi.
+    /// - Saat ada teks di input: send terlihat, mic tersembunyi.
+    /// - Saat kosong & tidak recording: mic terlihat, send tersembunyi.
+    /// - Saat awaiting: keduanya disembunyikan.
+    /// </summary>
+    private void UpdateMicAndSendVisibility()
     {
-        // ChatManager tidak tahu tombol mic mana; delegasikan ke RecordAudio untuk show/hide & interactable.
-        if (_recorder != null)
-            _recorder.SetUIState(_isMicOn, !_isAwaitingResponse);
+        bool hasText = !string.IsNullOrWhiteSpace(_inputField != null ? _inputField.text : null);
+
+        // if (_isAwaitingResponse)
+        // {
+        //     // Kunci UI input utama saat menunggu → sembunyikan keduanya
+        //     if (_sendButton != null) _sendButton.gameObject.SetActive(false);
+        //     if (_recorder  != null)  _recorder.SetUIState(_isMicOn, /*uiEnabled*/ false, /*forceHide*/ true);
+        //     return;
+        // }
+
+        if (_isMicOn)
+        {
+            // Sedang recording → tampilkan UI mic (stop/pulsing), sembunyikan send
+            if (_sendButton != null) _sendButton.gameObject.SetActive(false);
+            if (_recorder  != null)  _recorder.SetUIState(true, /*uiEnabled*/ true, /*forceHide*/ false);
+        }
+        else
+        {
+            if (hasText)
+            {
+                // Ada teks → tampilkan send, sembunyikan mic
+                if (_sendButton != null) _sendButton.gameObject.SetActive(true);
+                if (_recorder  != null)  _recorder.SetUIState(false, /*uiEnabled*/ false, /*forceHide*/ true);
+            }
+            else
+            {
+                // Kosong → tampilkan mic, sembunyikan send
+                if (_sendButton != null) _sendButton.gameObject.SetActive(false);
+                if (_recorder  != null)  _recorder.SetUIState(false, /*uiEnabled*/ true, /*forceHide*/ false);
+            }
+        }
     }
 
     #endregion
 
-    #region Awaiting & Interactables
+    #region Awaiting & Other Interactables
 
     private void SetAwaiting(bool value)
     {
         _isAwaitingResponse = value;
-        UpdateAllInteractables();
+        // Mic/Send pakai SetActive → atur lewat helper khusus
+        UpdateMicAndSendVisibility();
+
+        // Kontrol lainnya masih aman pakai interactable
+        UpdateOtherInteractables();
     }
 
-    private void UpdateAllInteractables()
+    private void UpdateOtherInteractables()
     {
         // Reasoning buttons
-        if (_reasoningSendButton != null)
-            _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
-        if (_reasoningStopButton != null)
-            _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
+        // if (_reasoningSendButton != null)
+        //     _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
+        // if (_reasoningStopButton != null)
+        //     _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
 
-        // Main inputs
-        if (_sendButton    != null) _sendButton.interactable    = !_isAwaitingResponse;
-        if (_newChatButton != null) _newChatButton.interactable = !_isAwaitingResponse;
+        // Tombol lain & input field
+        // if (_newChatButton != null) _newChatButton.interactable = !_isAwaitingResponse;
         if (_inputField    != null) _inputField.interactable    = !_isAwaitingResponse;
-
-        // Mic buttons (delegated)
-        if (_recorder != null)
-            _recorder.SetUIState(_isMicOn, !_isAwaitingResponse);
+        // _sendButton.interactable tidak dipakai; visibilitasnya diatur SetActive di UpdateMicAndSendVisibility
     }
 
     #endregion
 
-    #region Audio → draft ke InputField
+    #region Audio → kirim langsung (Rule 3)
 
     private void OnAudioSaved(string filePath)
     {
@@ -350,26 +383,50 @@ public class ChatManager : MonoBehaviour
             Debug.LogWarning($"Audio file not found: {filePath}");
             return;
         }
-        StartCoroutine(TranscribeAndFillInput(filePath));
+        // Transkrip → kirim langsung sebagai pesan user (tanpa lewat input field)
+        StartCoroutine(TranscribeAndSendDirect(filePath));
     }
 
-    private IEnumerator TranscribeAndFillInput(string filePath)
+    private IEnumerator TranscribeAndSendDirect(string filePath)
     {
-        SetAwaiting(true); // kunci UI sementara
+        SetAwaiting(true);
+
+        string finalText = null;
         yield return ServiceManager.Instance.TranscribeApi.TranscribeFile(
             filePath,
-            onSuccess: text =>
-            {
-                _inputField.text = text ?? "";
-                _inputField.caretPosition = _inputField.text.Length;
-                SetAwaiting(false);
-            },
-            onError: err =>
-            {
-                Debug.LogError($"Transcribe error: {err}");
-                SetAwaiting(false);
-            }
+            onSuccess: text => { finalText = text ?? ""; },
+            onError:   err  => Debug.LogError($"Transcribe error: {err}")
         );
+
+        if (!string.IsNullOrWhiteSpace(finalText))
+        {
+            CreateBubble(finalText, true);
+
+            if (string.IsNullOrEmpty(_currentConversationId))
+            {
+                if (_isReasoningMode)
+                    StartNewConversationForReasoning(finalText);
+                else
+                    StartNewConversation(finalText);
+            }
+            else
+            {
+                if (_isReasoningMode)
+                    StartCoroutine(SendUserMessageReasoning(finalText, _currentConversationId));
+                else
+                    StartCoroutine(SendUserMessage(finalText, _currentConversationId));
+            }
+        }
+        else
+        {
+            Debug.Log("Transcription result empty; nothing sent.");
+            SetAwaiting(false);
+        }
+
+        // Reset ke state awal (input kosong, send hide, mic show)
+        if (_inputField != null) _inputField.text = "";
+        _isMicOn = false;
+        UpdateMicAndSendVisibility();
     }
 
     #endregion
@@ -506,6 +563,9 @@ public class ChatManager : MonoBehaviour
             else
                 StartCoroutine(SendUserMessage(text, _currentConversationId));
         }
+
+        // Kembali ke state awal setelah kirim manual
+        UpdateMicAndSendVisibility();
     }
 
     // tombol reasoning send khusus (opsional)
@@ -521,6 +581,8 @@ public class ChatManager : MonoBehaviour
             StartNewConversationForReasoning(text);
         else
             StartCoroutine(SendUserMessageReasoning(text, _currentConversationId));
+
+        UpdateMicAndSendVisibility();
     }
 
     private void StartNewConversation(string text)
@@ -632,7 +694,12 @@ public class ChatManager : MonoBehaviour
 
     private IEnumerator HandleAITurn(string userMessage, string convoId)
     {
+        // Masuk mode "menunggu AI"
         SetAwaiting(true);
+        // Mic tetap terlihat, tapi non-interactable selama menunggu
+        if (_recorder != null)
+            _recorder.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
+
         _isTyping.Add(convoId);
 
         _messageCache[convoId].Add(new Message {
@@ -670,7 +737,11 @@ public class ChatManager : MonoBehaviour
                     RebuildChatUI(convoId);
 
                 SaveAIMessage(response, convoId);
+
+                // Keluar mode "menunggu AI"
                 SetAwaiting(false);
+                if (_recorder != null)
+                    _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
 
                 TryGenerateTopicOnce(convoId, userMessage, response);
                 TrySummarizeEveryTwoPairs(convoId);
@@ -680,7 +751,12 @@ public class ChatManager : MonoBehaviour
                 Debug.LogError($"Chat API error: {err}");
                 _isTyping.Remove(convoId);
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
+
+                // Keluar mode "menunggu AI" (gagal)
                 SetAwaiting(false);
+                if (_recorder != null)
+                    _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
+
                 if (_currentConversationId == convoId)
                     RebuildChatUI(convoId);
             }
@@ -689,7 +765,11 @@ public class ChatManager : MonoBehaviour
 
     private IEnumerator HandleAgenticTurn(string userMessage, string convoId)
     {
+        // Masuk mode "menunggu AI" (agentic)
         SetAwaiting(true);
+        if (_recorder != null)
+            _recorder.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
+
         _isTyping.Add(convoId);
 
         _messageCache[convoId].Add(new Message {
@@ -739,7 +819,10 @@ public class ChatManager : MonoBehaviour
                 if (_currentConversationId == convoId)
                     RebuildChatUI(convoId);
 
+                // Keluar mode "menunggu AI"
                 SetAwaiting(false);
+                if (_recorder != null)
+                    _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
 
                 if (!string.IsNullOrWhiteSpace(res.summary))
                 {
@@ -759,7 +842,12 @@ public class ChatManager : MonoBehaviour
                 Debug.LogError($"Agentic API error: {err}");
                 _isTyping.Remove(convoId);
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
+
+                // Keluar mode "menunggu AI" (gagal)
                 SetAwaiting(false);
+                if (_recorder != null)
+                    _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
+
                 if (_currentConversationId == convoId)
                     RebuildChatUI(convoId);
             }

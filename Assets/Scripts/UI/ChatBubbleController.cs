@@ -159,7 +159,7 @@ public class ChatBubbleController : MonoBehaviour
     private string StyleQuote(string s)
     {
         if (string.IsNullOrEmpty(s)) return "";
-        return $"<color=#94A3B8><i>{s}</i></color>";
+        return $"<color=#FFFFFF><i>{s}</i></color>";
     }
 
     // Fallback jika QuotePanel tidak ada

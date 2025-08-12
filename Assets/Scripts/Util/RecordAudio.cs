@@ -6,168 +6,120 @@ using UnityEngine.UI;
 [RequireComponent(typeof(AudioSource))]
 public class RecordAudio : MonoBehaviour
 {
-    #region Inspector Fields
+    #region Inspector
 
     [Header("Recording Settings")]
-    [Tooltip("Name of the saved WAV file (will be placed under persistentDataPath/Recordings)")]
     [SerializeField] private string outputFileName = "recording.wav";
+    [SerializeField] private string folderName     = "Recordings";
+    [SerializeField] private string micDevice      = "";
+    [SerializeField] private int    sampleRate     = 44100;
+    [SerializeField] private int    maxLengthSec   = 3599;
 
-    [Tooltip("Subfolder under persistentDataPath where recordings go (ignored if absolute path is used below)")]
-    [SerializeField] private string folderName = "Recordings";
-
-    [Tooltip("Which mic device to use (blank = first available)")]
-    [SerializeField] private string micDevice = "";
-
-    [Tooltip("Sample rate in Hz")]
-    [SerializeField] private int sampleRate = 44100;
-
-    [Tooltip("Max recording length in seconds")]
-    [SerializeField] private int maxLengthSec = 3599;
-
-    [Header("UI Buttons")]
-    [Tooltip("Button that starts the recording")]
-    [SerializeField] private Button startButton;      // MicStartButton
-
-    [Tooltip("Button that stops & saves the recording")]
-    [SerializeField] private Button stopButton;       // MicStopButton
-
-    [Header("UI Ownership")]
-    [Tooltip("If true, this component toggles Start/Stop buttons itself. If false, external (ChatManager) should call SetUIState.")]
-    [SerializeField] private bool manageButtonsInternally = false;
+    [Header("Mic UI (Single Button)")]
+    [SerializeField] private Button      micButton;        // tombol mic tunggal (toggle)
+    [SerializeField] private CanvasGroup micCanvasGroup;   // taruh di object tombol mic (atau parent)
+    [SerializeField] private float       blinkMinAlpha = 0.45f;
+    [SerializeField] private float       blinkMaxAlpha = 1.0f;
+    [SerializeField] private float       blinkSpeed    = 2.0f; // semakin besar, semakin cepat kedip
 
     #endregion
 
-    #region Events
+    #region Events & State
 
-    /// <summary>
-    /// Dipanggil setelah file WAV selesai disimpan. Param = absolute path file.
-    /// </summary>
     public event Action<string> OnSaved;
+    public event Action<bool>   OnMicStateChanged;
 
-    /// <summary>
-    /// Dipanggil saat status mic berubah. true = mulai merekam, false = berhenti.
-    /// </summary>
-    public event Action<bool> OnMicStateChanged;
-
-    #endregion
-
-    #region Public State
-
-    /// <summary>
-    /// Status perekaman saat ini.
-    /// </summary>
     public bool IsRecording { get; private set; }
-
-    #endregion
-
-    #region Private State
 
     private string    _directoryPath;
     private string    _filePath;
     private AudioClip _recordedClip;
     private float     _startTime;
+    private Coroutine _blinkCo;
 
     #endregion
 
-    #region Unity Callbacks
+    #region Unity
 
     private void Awake()
     {
-        // ---- Path tujuan ----
-        // Jika ingin folder absolut khusus Windows (seperti contoh lama), isi di sini:
+        // Siapkan folder simpan
         string targetFolder = @"D:\Emilia\AI\Recordings";
-        // Jika tidak, gunakan persistentDataPath/folderName (cross-platform):
-        //string targetFolder = Path.Combine(Application.persistentDataPath, folderName);
-
         if (!Directory.Exists(targetFolder))
             Directory.CreateDirectory(targetFolder);
 
         _directoryPath = targetFolder;
         _filePath      = Path.Combine(_directoryPath, outputFileName);
 
-        // Initial UI state (hanya bila dikelola internal)
-        if (manageButtonsInternally)
-        {
-            if (startButton) { startButton.gameObject.SetActive(true);  startButton.interactable = true; }
-            if (stopButton)  { stopButton .gameObject.SetActive(false); stopButton .interactable = true; }
-        }
-        else
-        {
-            // External owner (ChatManager) yang akan memanggil SetUIState()
-            if (startButton) startButton.gameObject.SetActive(true);
-            if (stopButton)  stopButton .gameObject.SetActive(false);
-        }
+        if (micButton != null)  micButton.onClick.AddListener(OnMicClicked);
+        if (micCanvasGroup == null && micButton != null)
+            micCanvasGroup = micButton.GetComponent<CanvasGroup>();
+
+        // State awal: mic terlihat (active) & tidak blinking
+        ApplyMicVisibility(true);
+        ApplyMicInteractable(true);
+        ApplyBlink(false);
     }
 
-    private void OnEnable()
+    private void OnDestroy()
     {
-        if (startButton) startButton.onClick.AddListener(OnStartClicked);
-        if (stopButton)  stopButton .onClick.AddListener(OnStopClicked);
-    }
-
-    private void OnDisable()
-    {
-        if (startButton) startButton.onClick.RemoveListener(OnStartClicked);
-        if (stopButton)  stopButton .onClick.RemoveListener(OnStopClicked);
+        if (micButton != null) micButton.onClick.RemoveListener(OnMicClicked);
     }
 
     #endregion
 
-    #region UI API (External Control)
+    #region Public API (dipanggil ChatManager)
 
     /// <summary>
-    /// Dipanggil dari ChatManager untuk menyelaraskan UI start/stop & interaksi tombol.
+    /// Sinkron UI mic:
+    /// - isOn: status rekaman saat ini (untuk kontrol blinking)
+    /// - uiEnabled: kalau terlihat, boleh diklik atau tidak
+    /// - forceHide: paksa sembunyikan (GameObject.SetActive(false))
     /// </summary>
-    public void SetUIState(bool micOn, bool interactable)
+    public void SetUIState(bool isOn, bool uiEnabled, bool forceHide, bool waitingForAI = false)
     {
-        if (startButton)
+        if (forceHide)
         {
-            startButton.gameObject.SetActive(!micOn);
-            startButton.interactable = interactable && !micOn;
+            // Disembunyikan total (misalnya saat input field sedang ada teks)
+            ApplyBlink(false);
+            ApplyMicVisibility(false);
+            return;
         }
-        if (stopButton)
+
+        // Tampilkan mic
+        ApplyMicVisibility(true);
+
+        // Kalau sedang menunggu AI → hanya disable interactable, tidak hide
+        if (waitingForAI)
         {
-            stopButton.gameObject.SetActive(micOn);
-            stopButton.interactable = interactable && micOn;
+            ApplyMicInteractable(false);
+            ApplyBlink(false); // matikan blinking biar user tahu ini idle
+            return;
         }
+
+        // Normal case
+        ApplyMicInteractable(uiEnabled);
+        ApplyBlink(isOn);
     }
 
     #endregion
 
-    #region UI Callbacks
+    #region UI callbacks
 
-    private void OnStartClicked()
+    private void OnMicClicked()
     {
-        StartRecording();
-
-        if (manageButtonsInternally)
-        {
-            if (startButton) { startButton.gameObject.SetActive(false); startButton.interactable = false; }
-            if (stopButton)  { stopButton .gameObject.SetActive(true);  stopButton .interactable = true; }
-        }
-
-        OnMicStateChanged?.Invoke(true);
-    }
-
-    private void OnStopClicked()
-    {
-        StopRecordingAndSave();
-
-        if (manageButtonsInternally)
-        {
-            if (stopButton)  { stopButton .gameObject.SetActive(false); stopButton .interactable = false; }
-            if (startButton) { startButton.gameObject.SetActive(true);  startButton.interactable = true; }
-        }
-
-        OnMicStateChanged?.Invoke(false);
+        if (IsRecording) StopRecording();
+        else             StartRecording();
     }
 
     #endregion
 
-    #region Recording Logic
+    #region Recording
 
     public void StartRecording()
     {
+        if (IsRecording) return;
+
         if (Microphone.devices.Length == 0)
         {
             Debug.LogError("No microphone devices found!");
@@ -175,70 +127,129 @@ public class RecordAudio : MonoBehaviour
         }
 
         string device = string.IsNullOrEmpty(micDevice) ? Microphone.devices[0] : micDevice;
-
-        _recordedClip = Microphone.Start(device, loop: false, lengthSec: maxLengthSec, frequency: sampleRate);
+        _recordedClip = Microphone.Start(device, loop:false, lengthSec:maxLengthSec, frequency:sampleRate);
         _startTime    = Time.realtimeSinceStartup;
         IsRecording   = true;
+
+        OnMicStateChanged?.Invoke(true);
+
+        // Pastikan mic terlihat & blinking saat start
+        ApplyMicVisibility(true);
+        ApplyMicInteractable(true);
+        ApplyBlink(true);
 
         Debug.Log($"Recording started on '{device}'");
     }
 
-    /// <summary>
-    /// Stop mic dan simpan file WAV (memicu event OnSaved).
-    /// </summary>
-    public void StopRecordingAndSave()
-    {
-        StopRecording();
-
-        if (_recordedClip == null)
-            return;
-
-        float recordedSeconds = Mathf.Max(0f, Time.realtimeSinceStartup - _startTime);
-        var trimmed = TrimClip(_recordedClip, recordedSeconds);
-
-        try
-        {
-            WavUtility.Save(_filePath, trimmed);
-            Debug.Log($"Recording saved to: {_filePath}");
-            OnSaved?.Invoke(_filePath);
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Failed to save WAV: {e.Message}");
-        }
-
-        // bersihkan
-        _recordedClip = null;
-    }
-
-    /// <summary>
-    /// Hanya mematikan microphone & menandai status; tidak menyimpan file.
-    /// </summary>
     public void StopRecording()
     {
         if (!IsRecording) return;
 
-        try { Microphone.End(null); }
-        catch (Exception e) { Debug.LogWarning($"Microphone.End error: {e.Message}"); }
-
+        Microphone.End(null);
         IsRecording = false;
+
+        float recordedSeconds = Time.realtimeSinceStartup - _startTime;
+        var trimmed = TrimClip(_recordedClip, recordedSeconds);
+
+        WavUtility.Save(_filePath, trimmed);
+        Debug.Log($"Recording saved to: {_filePath}");
+
+        _recordedClip = null;
+
+        OnMicStateChanged?.Invoke(false);
+
+        // Hentikan blinking (kembali alpha penuh). Visibility/interactable akan diatur ChatManager.
+        ApplyBlink(false);
+        SetCanvasAlpha(1f);
+
+        // Beritahu ChatManager untuk upload/transcribe & mengatur UI berikutnya
+        OnSaved?.Invoke(_filePath);
     }
 
-    private AudioClip TrimClip(AudioClip clip, float lengthSeconds)
+    private AudioClip TrimClip(AudioClip clip, float length)
     {
-        int samples = Mathf.Clamp((int)(lengthSeconds * clip.frequency), 0, clip.samples);
+        int samples = Mathf.Min((int)(length * clip.frequency), clip.samples);
         var data = new float[samples * clip.channels];
         clip.GetData(data, 0);
 
-        var newClip = AudioClip.Create(
-            name: clip.name,
-            lengthSamples: samples,
-            channels: clip.channels,
-            frequency: clip.frequency,
-            stream: false
-        );
+        var newClip = AudioClip.Create(clip.name, samples, clip.channels, clip.frequency, false);
         newClip.SetData(data, 0);
         return newClip;
+    }
+
+    #endregion
+
+    #region Visual (Blink tanpa Animator)
+
+    private void ApplyMicVisibility(bool visible)
+    {
+        if (micButton != null)
+            micButton.gameObject.SetActive(visible);
+        if (!visible)
+        {
+            // jika disembunyikan, pastikan blink mati & alpha reset
+            ApplyBlink(false);
+            SetCanvasAlpha(1f);
+        }
+    }
+
+    private void ApplyMicInteractable(bool interactable)
+    {
+        if (micButton != null)
+            micButton.interactable = interactable;
+    }
+
+    private void ApplyBlink(bool shouldBlink)
+    {
+        if (shouldBlink) StartBlink();
+        else             StopBlink();
+    }
+
+    private void StartBlink()
+    {
+        if (micCanvasGroup == null) return;
+        if (_blinkCo != null) StopCoroutine(_blinkCo);
+        _blinkCo = StartCoroutine(CoBlink());
+    }
+
+    private void StopBlink()
+    {
+        if (_blinkCo != null) StopCoroutine(_blinkCo);
+        _blinkCo = null;
+        SetCanvasAlpha(1f);
+    }
+
+    private System.Collections.IEnumerator CoBlink()
+    {
+        // Kedip mulus: alpha = Lerp(min, max, 0.5 + 0.5*sin(t*speed))
+        float t = 0f;
+        while (true)
+        {
+            t += Time.unscaledDeltaTime * blinkSpeed;
+            float s = 0.5f + 0.5f * Mathf.Sin(t);
+            float a = Mathf.Lerp(blinkMinAlpha, blinkMaxAlpha, s);
+            SetCanvasAlpha(a);
+            yield return null;
+        }
+    }
+
+    private void SetCanvasAlpha(float a)
+    {
+        if (micCanvasGroup != null)
+        {
+            micCanvasGroup.alpha = a;
+        }
+        else if (micButton != null)
+        {
+            // fallback: ubah warna Image utama
+            var img = micButton.GetComponent<Image>();
+            if (img != null)
+            {
+                var c = img.color;
+                c.a = a;
+                img.color = c;
+            }
+        }
     }
 
     #endregion
