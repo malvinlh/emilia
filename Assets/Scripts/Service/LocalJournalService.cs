@@ -8,25 +8,21 @@ using EMILIA.Data;
 public class LocalJournalService : MonoBehaviour
 {
     #region Dependencies
-
     private SQLiteConnection _db;
-
     #endregion
 
-    #region Unity Callbacks
-
+    #region Unity
     private void Awake()
     {
         _db = DatabaseManager.Instance.DB;
         _db.Execute("PRAGMA foreign_keys = ON;");
     }
-
     #endregion
 
     #region Queries
 
     /// <summary>
-    /// Retrieves all journals for a given user, ordered by creation date descending.
+    /// Ambil semua jurnal milik user, urut terbaru di atas (berdasarkan UpdatedAt lalu CreatedAt).
     /// </summary>
     public IEnumerator FetchUserJournals(
         string userId,
@@ -38,10 +34,11 @@ public class LocalJournalService : MonoBehaviour
         {
             var journals = _db.Table<Journal>()
                               .Where(j => j.UserId == userId)
-                              .OrderByDescending(j => j.CreatedAt)
+                              .OrderByDescending(j => j.UpdatedAt)
+                              .ThenByDescending(j => j.CreatedAt)
                               .ToArray();
 
-            onSuccess(journals);
+            onSuccess?.Invoke(journals);
         }
         catch (Exception ex)
         {
@@ -56,7 +53,7 @@ public class LocalJournalService : MonoBehaviour
     #region Commands
 
     /// <summary>
-    /// Inserts a new journal entry and returns the created object.
+    /// Insert jurnal baru dan return objeknya.
     /// </summary>
     public IEnumerator CreateJournal(
         string userId,
@@ -69,15 +66,15 @@ public class LocalJournalService : MonoBehaviour
     {
         try
         {
-            var timestamp = DateTime.Parse(createdAtIso);
+            var ts = DateTime.Parse(createdAtIso);
             var journal = new Journal
             {
                 Id        = Guid.NewGuid().ToString(),
                 UserId    = userId,
                 Title     = title,
                 Content   = content,
-                CreatedAt = timestamp,
-                UpdatedAt = timestamp
+                CreatedAt = ts,
+                UpdatedAt = ts
             };
 
             _db.Insert(journal);
@@ -92,7 +89,7 @@ public class LocalJournalService : MonoBehaviour
     }
 
     /// <summary>
-    /// Updates the title, content, and updated_at timestamp of an existing journal.
+    /// Update judul, konten, dan UpdatedAt.
     /// </summary>
     public IEnumerator UpdateJournal(
         string journalId,
@@ -128,7 +125,7 @@ public class LocalJournalService : MonoBehaviour
     }
 
     /// <summary>
-    /// Deletes a journal entry by its ID.
+    /// Hapus jurnal by ID.
     /// </summary>
     public IEnumerator DeleteJournal(
         string journalId,

@@ -3,7 +3,7 @@ using UnityEngine.UI;
 
 public class DeleteChatsSetting : MonoBehaviour
 {
-    public Button audioPrevButton;
+    // Button audioPrevButton;
     public Button yesButton;
     public Button noButton;
 
@@ -20,7 +20,7 @@ public class DeleteChatsSetting : MonoBehaviour
     public void OnYesClicked()
     {
         // disable dialog UI dulu (opsional)
-        audioPrevButton.interactable = false;
+        // audioPrevButton.interactable = false;
 
         StartCoroutine(
             ServiceManager.Instance.ChatService.DeleteAllChats(

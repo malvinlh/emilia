@@ -811,7 +811,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _targetSceneKey: Login
-  _buttonSfx: {fileID: 8300000, guid: de961960ab1eb0345a1fa74897890d47, type: 3}
+  _buttonSfx: {fileID: 8300000, guid: 403cc010847e96c4bb7ada2129dc1b10, type: 3}
 --- !u!1001 &2712416862955840696
 PrefabInstance:
   m_ObjectHideFlags: 0
