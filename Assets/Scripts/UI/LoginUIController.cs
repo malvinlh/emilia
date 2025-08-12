@@ -10,15 +10,18 @@ public class LoginUIController : MonoBehaviour
     [SerializeField] private TMP_InputField fullNameInput;
     [SerializeField] private TMP_InputField nicknameInput;
     [SerializeField] private Button continueButton;
-    [SerializeField] private TextMeshProUGUI errorText;
+
+    [Header("Error Labels (Separated)")]
+    [SerializeField] private TextMeshProUGUI nicknameErrorText;
+    [SerializeField] private TextMeshProUGUI fullNameErrorText;
+
     [SerializeField] private SceneButtonHandler sceneButtonHandler;
 
     #endregion
 
     #region Constants
 
-    private const string NicknameRequiredMessage = "⚠ Nickname wajib diisi.";
-    private const string ErrorPrefix = "⚠ ";
+    private const string NicknameRequiredMessage = "Nickname wajib diisi.";
 
     #endregion
 
@@ -26,10 +29,13 @@ public class LoginUIController : MonoBehaviour
 
     private void Start()
     {
-        ClearError();
+        ClearAllErrors();
+
         continueButton.onClick.AddListener(OnContinueClicked);
-        nicknameInput.onValueChanged.AddListener(_ => ClearError());
-        fullNameInput.onValueChanged.AddListener(_ => ClearError());
+
+        // Hanya bersihkan error terkait saat field berubah
+        nicknameInput.onValueChanged.AddListener(_ => ClearNicknameError());
+        fullNameInput.onValueChanged.AddListener(_ => ClearFullNameError());
     }
 
     #endregion
@@ -41,9 +47,13 @@ public class LoginUIController : MonoBehaviour
         string nickname = nicknameInput.text.Trim();
         string fullName = fullNameInput.text.Trim();
 
+        // Bersihkan error lama sebelum validasi baru
+        ClearAllErrors();
+
+        // Validasi lokal: nickname wajib
         if (string.IsNullOrWhiteSpace(nickname))
         {
-            ShowError(NicknameRequiredMessage);
+            ShowNicknameError(NicknameRequiredMessage);
             return;
         }
 
@@ -51,7 +61,7 @@ public class LoginUIController : MonoBehaviour
             nickname,
             fullName,
             onSuccess: () => ProcessLoginSuccess(nickname),
-            onError: err => ShowError(ErrorPrefix + err)
+            onError: err => HandleServiceError(err)
         ));
     }
 
@@ -65,20 +75,58 @@ public class LoginUIController : MonoBehaviour
 
     #endregion
 
-    #region Helper Methods
+    #region Error Routing
 
-    private void ShowError(string message)
+    /// <summary>
+    /// Meneruskan error dari service ke label yang tepat.
+    /// Asumsi: error fullname mismatch mengandung kata "nama lengkap".
+    /// Selain itu, tampilkan di label nickname (sebagai fallback umum).
+    /// </summary>
+    private void HandleServiceError(string message)
     {
-        if (errorText != null)
-            errorText.text = message;
+        if (!string.IsNullOrEmpty(message) &&
+            message.ToLower().Contains("nama lengkap"))
+        {
+            ShowFullNameError(message);
+        }
         else
-            Debug.LogWarning(message);
+        {
+            ShowNicknameError(message);
+        }
+
+        Debug.LogWarning($"[Login] Service error: {message}");
     }
 
-    private void ClearError()
+    #endregion
+
+    #region Helper Methods - Error UI
+
+    private void ShowNicknameError(string message)
     {
-        if (errorText != null)
-            errorText.text = string.Empty;
+        if (nicknameErrorText != null) nicknameErrorText.text = message;
+        else Debug.LogWarning(message);
+    }
+
+    private void ShowFullNameError(string message)
+    {
+        if (fullNameErrorText != null) fullNameErrorText.text = message;
+        else Debug.LogWarning(message);
+    }
+
+    private void ClearNicknameError()
+    {
+        if (nicknameErrorText != null) nicknameErrorText.text = string.Empty;
+    }
+
+    private void ClearFullNameError()
+    {
+        if (fullNameErrorText != null) fullNameErrorText.text = string.Empty;
+    }
+
+    private void ClearAllErrors()
+    {
+        ClearNicknameError();
+        ClearFullNameError();
     }
 
     #endregion
