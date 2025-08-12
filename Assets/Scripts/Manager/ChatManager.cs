@@ -28,47 +28,59 @@ public class ChatManager : MonoBehaviour
     [SerializeField] private Button         _reasoningStopButton; // Toggle OFF
 
     [Header("Audio Recording")]
-    [SerializeField] private RecordAudio    _recorder;            // drag komponen RecordAudio di sini
+    [SerializeField] private RecordAudio    _recorder; // pegang tombol mic start/stop sendiri, UI dikontrol via SetUIState
 
     [Header("Delete Confirmation UI")]
     [SerializeField] private GameObject     _deleteChatSetting;
     [SerializeField] private Button         _deleteYesButton;
     [SerializeField] private Button         _deleteNoButton;
 
+    [Header("Avatar Fade Settings")]
+    [SerializeField] private Image[] _avatarImages;
+    [SerializeField] private float avatarFadeTime = 0.25f; // durasi fade-out dan fade-in masing-masing
+    [SerializeField] private float idleAlpha     = 1.0f;   // alpha saat idle setelah fade-in
+    [SerializeField] private float thinkingAlpha = 1.0f;   // alpha saat thinking setelah fade-in
+
+    [Header("Animator Settings")]
+    [SerializeField] private Animator anim;
+    [SerializeField] private float animCrossFadeTime = 0.3f; // tidak dipakai di mode switch-while-0, biarkan jika mau opsi lain
+
     #endregion
 
     #region Constants & Fields
 
     private const string PrefKeyNickname     = "Nickname";
-    private const int    SnippetMaxLength    = 20;
     private const string TypingPlaceholderId = "__TYPING__";
     private const string NewChatLabel        = "New Chat";
-
-    private const string BotSender       = "Bot";
-    private const string ReasoningSender = "Reasoning";
+    private const string BotSender           = "Bot";
+    private const string ReasoningSender     = "Reasoning";
 
     private static readonly Regex ConversationRegex =
         new Regex(@"cv(\d+)$", RegexOptions.Compiled);
 
-    [HideInInspector] public string CurrentUserId;
+    // Ganti sesuai path state di Animator
+    private static readonly int IdleHash     = Animator.StringToHash("Base Layer.idle-3");
+    private static readonly int ThinkingHash = Animator.StringToHash("Base Layer.idle-2");
 
+    [SerializeField] private int animatorLayerIndex = 0;
+
+    [HideInInspector] public string CurrentUserId;
     private string _currentConversationId;
     private string _pendingDeleteId;
 
     private bool   _isAwaitingResponse;
-    private bool   _isReasoningMode = false; // toggle global
+    private bool   _isReasoningMode = false;
+    private bool   _isMicOn         = false;
 
-    private readonly Dictionary<string, List<Message>> _messageCache =
-        new Dictionary<string, List<Message>>();
+    private readonly Dictionary<string, List<Message>> _messageCache = new();
+    private readonly HashSet<string> _isTyping = new();
+    private readonly List<string> _userConvs = new();
 
-    private readonly HashSet<string> _isTyping = new HashSet<string>();
-    private readonly List<string>    _userConvs = new List<string>();
+    private readonly Dictionary<string, string> _topicCache     = new();
+    private readonly HashSet<string> _topicRequested            = new();
+    private readonly Dictionary<string, int> _lastSummarizedPairCount = new();
 
-    private readonly Dictionary<string, string> _topicCache     = new Dictionary<string, string>();
-    private readonly HashSet<string>            _topicRequested = new HashSet<string>();
-    private readonly Dictionary<string, int>    _lastSummarizedPairCount = new Dictionary<string, int>();
-
-    [SerializeField] private Animator anim;
+    private Coroutine _switchCo;
 
     #endregion
 
@@ -76,6 +88,10 @@ public class ChatManager : MonoBehaviour
 
     private void Awake()
     {
+        // Auto-collect semua Image avatar kalau array kosong
+        if (_avatarImages == null || _avatarImages.Length == 0)
+            _avatarImages = GetComponentsInChildren<Image>(true);
+
         LoadCurrentUser();
         InitializeUI();
     }
@@ -87,15 +103,20 @@ public class ChatManager : MonoBehaviour
 
     private void OnEnable()
     {
-        // subscribe event dari recorder (kalau ada)
         if (_recorder != null)
+        {
             _recorder.OnSaved += OnAudioSaved;
+            _recorder.OnMicStateChanged += HandleMicStateChanged; // sinkron status mic
+        }
     }
 
     private void OnDisable()
     {
         if (_recorder != null)
+        {
             _recorder.OnSaved -= OnAudioSaved;
+            _recorder.OnMicStateChanged -= HandleMicStateChanged;
+        }
     }
 
     #endregion
@@ -121,7 +142,8 @@ public class ChatManager : MonoBehaviour
 
     private void InitializeUI()
     {
-        _deleteChatSetting.SetActive(false);
+        if (_deleteChatSetting != null)
+            _deleteChatSetting.SetActive(false);
 
         _newChatButton?.onClick.AddListener(OnNewChatClicked);
         _sendButton    ?.onClick.AddListener(OnSendClicked);
@@ -130,12 +152,15 @@ public class ChatManager : MonoBehaviour
         if (_reasoningStopButton != null) _reasoningStopButton.onClick.AddListener(ExitReasoningMode);
 
         _isReasoningMode = false;
+        _isMicOn         = _recorder != null && _recorder.IsRecording;
+
         ApplyReasoningVisibilityByMode();
-        UpdateReasoningInteractable();
+        ApplyMicVisibilityByMode();
+        UpdateAllInteractables();
 
         _deleteNoButton?.onClick.AddListener(() =>
         {
-            _deleteChatSetting.SetActive(false);
+            if (_deleteChatSetting != null) _deleteChatSetting.SetActive(false);
             _pendingDeleteId = null;
         });
         _deleteYesButton?.onClick.AddListener(ConfirmDeleteConversation);
@@ -156,8 +181,11 @@ public class ChatManager : MonoBehaviour
         ClearChat();
 
         _isReasoningMode = false;
+        _isMicOn         = false;
+
         ApplyReasoningVisibilityByMode();
-        UpdateReasoningInteractable();
+        ApplyMicVisibilityByMode();
+        UpdateAllInteractables();
 
         FetchAndPopulateHistory();
     }
@@ -174,30 +202,87 @@ public class ChatManager : MonoBehaviour
         ClearChat();
 
         _isReasoningMode = false;
+        _isMicOn         = false;
+
         ApplyReasoningVisibilityByMode();
-        UpdateReasoningInteractable();
+        ApplyMicVisibilityByMode();
+        UpdateAllInteractables();
     }
 
     #endregion
 
-    #region Reasoning Toggle
+    #region Reasoning Toggle (FadeOut -> Switch Instan -> FadeIn)
 
     private void EnterReasoningMode()
     {
         _isReasoningMode = true;
 
-        anim.SetBool("isThinking", true);
-        ApplyReasoningVisibilityByMode(); // show/hide GO hanya saat toggle
-        UpdateReasoningInteractable();
+        StartSwitchWithFade(ThinkingHash, thinkingAlpha);
+
+        ApplyReasoningVisibilityByMode();
+        UpdateAllInteractables();
     }
 
     private void ExitReasoningMode()
     {
         _isReasoningMode = false;
 
-        anim.SetBool("isThinking", false);
+        StartSwitchWithFade(IdleHash, idleAlpha);
+
         ApplyReasoningVisibilityByMode();
-        UpdateReasoningInteractable();
+        UpdateAllInteractables();
+    }
+
+    private void StartSwitchWithFade(int targetStateHash, float appearAlpha)
+    {
+        if (_switchCo != null) StopCoroutine(_switchCo);
+        _switchCo = StartCoroutine(CoSwitchAnimWithFade(targetStateHash, appearAlpha));
+    }
+
+    /// <summary>
+    /// Fade OUT ke 0, ganti pose/state anim secara instan saat 0, lalu Fade IN.
+    /// </summary>
+    private IEnumerator CoSwitchAnimWithFade(int targetHash, float appearAlpha)
+    {
+        // 1) Fade OUT ke 0
+        yield return CoFadeImages(0f, avatarFadeTime);
+
+        // 2) Ganti pose/state saat alpha 0 (instan, tanpa blend)
+        anim.Play(targetHash, animatorLayerIndex, 0f);
+        anim.Update(0f); // terapkan pose baru segera
+
+        // 3) Fade IN ke alpha target (idleAlpha / thinkingAlpha)
+        yield return CoFadeImages(appearAlpha, avatarFadeTime);
+    }
+
+    private IEnumerator CoFadeImages(float targetAlpha, float dur)
+    {
+        if (_avatarImages == null || _avatarImages.Length == 0) yield break;
+
+        float t = 0f;
+        float start = _avatarImages[0].color.a;
+
+        while (t < dur)
+        {
+            t += Time.deltaTime;
+            float a = Mathf.Lerp(start, targetAlpha, t / dur);
+
+            for (int i = 0; i < _avatarImages.Length; i++)
+            {
+                var c = _avatarImages[i].color;
+                c.a = a;
+                _avatarImages[i].color = c;
+            }
+            yield return null;
+        }
+
+        // Snap ke target di akhir
+        for (int i = 0; i < _avatarImages.Length; i++)
+        {
+            var c = _avatarImages[i].color;
+            c.a = targetAlpha;
+            _avatarImages[i].color = c;
+        }
     }
 
     private void ApplyReasoningVisibilityByMode()
@@ -208,33 +293,56 @@ public class ChatManager : MonoBehaviour
             _reasoningStopButton.gameObject.SetActive(_isReasoningMode);
     }
 
-    private void UpdateReasoningInteractable()
+    #endregion
+
+    #region Mic Sync (UI & State)
+
+    private void HandleMicStateChanged(bool isOn)
     {
-        if (_reasoningSendButton != null)
-            _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
-        if (_reasoningStopButton != null)
-            _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
+        _isMicOn = isOn;
+        ApplyMicVisibilityByMode();
+        UpdateAllInteractables();
     }
+
+    private void ApplyMicVisibilityByMode()
+    {
+        // ChatManager tidak tahu tombol mic mana; delegasikan ke RecordAudio untuk show/hide & interactable.
+        if (_recorder != null)
+            _recorder.SetUIState(_isMicOn, !_isAwaitingResponse);
+    }
+
+    #endregion
+
+    #region Awaiting & Interactables
 
     private void SetAwaiting(bool value)
     {
         _isAwaitingResponse = value;
+        UpdateAllInteractables();
+    }
 
-        if (_sendButton    != null) _sendButton.interactable     = !value;
-        if (_newChatButton != null) _newChatButton.interactable  = !value;
-        if (_inputField    != null) _inputField.interactable     = !value;
+    private void UpdateAllInteractables()
+    {
+        // Reasoning buttons
+        if (_reasoningSendButton != null)
+            _reasoningSendButton.interactable = !_isAwaitingResponse && !_isReasoningMode;
+        if (_reasoningStopButton != null)
+            _reasoningStopButton.interactable = !_isAwaitingResponse &&  _isReasoningMode;
 
-        UpdateReasoningInteractable();
+        // Main inputs
+        if (_sendButton    != null) _sendButton.interactable    = !_isAwaitingResponse;
+        if (_newChatButton != null) _newChatButton.interactable = !_isAwaitingResponse;
+        if (_inputField    != null) _inputField.interactable    = !_isAwaitingResponse;
+
+        // Mic buttons (delegated)
+        if (_recorder != null)
+            _recorder.SetUIState(_isMicOn, !_isAwaitingResponse);
     }
 
     #endregion
 
     #region Audio → draft ke InputField
 
-    /// <summary>
-    /// Dipanggil dari RecordAudio saat file WAV sudah tersimpan.
-    /// Kita upload ke endpoint sesuai mode, ambil teks, lalu masukin ke input field.
-    /// </summary>
     private void OnAudioSaved(string filePath)
     {
         if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
@@ -242,19 +350,17 @@ public class ChatManager : MonoBehaviour
             Debug.LogWarning($"Audio file not found: {filePath}");
             return;
         }
-        // Transcribe → hasil ke input field (draft)
         StartCoroutine(TranscribeAndFillInput(filePath));
     }
 
     private IEnumerator TranscribeAndFillInput(string filePath)
     {
-        SetAwaiting(true); // kunci UI sementara (ikon reasoning tetap visible tapi non-interactable)
+        SetAwaiting(true); // kunci UI sementara
         yield return ServiceManager.Instance.TranscribeApi.TranscribeFile(
             filePath,
             onSuccess: text =>
             {
                 _inputField.text = text ?? "";
-                // fokuskan caret di akhir supaya siap diedit/Send
                 _inputField.caretPosition = _inputField.text.Length;
                 SetAwaiting(false);
             },
@@ -540,7 +646,6 @@ public class ChatManager : MonoBehaviour
         if (_currentConversationId == convoId)
             RebuildChatUI(convoId);
 
-        // === /chat ===
         yield return ServiceManager.Instance.ChatApi.SendPrompt(
             username: CurrentUserId,
             question: userMessage,
@@ -769,7 +874,8 @@ public class ChatManager : MonoBehaviour
     public void OnDeleteClicked(string conversationId)
     {
         _pendingDeleteId = conversationId;
-        _deleteChatSetting.SetActive(true);
+        if (_deleteChatSetting != null)
+            _deleteChatSetting.SetActive(true);
     }
 
     private void ConfirmDeleteConversation()
@@ -789,7 +895,7 @@ public class ChatManager : MonoBehaviour
             _pendingDeleteId,
             onSuccess: () =>
             {
-                _deleteChatSetting.SetActive(false);
+                if (_deleteChatSetting != null) _deleteChatSetting.SetActive(false);
                 FetchAndPopulateHistory();
 
                 if (_pendingDeleteId == _currentConversationId)
