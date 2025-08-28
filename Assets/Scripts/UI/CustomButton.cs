@@ -4,23 +4,36 @@ using UnityEngine.EventSystems;
 using TMPro;
 
 [RequireComponent(typeof(Button), typeof(Image))]
+/// <summary>
+/// Custom button styling controller that changes background, icon, and text colors
+/// depending on the button state (normal, hover, pressed, disabled).
+/// 
+/// - Implements Unity event interfaces (<see cref="IPointerEnterHandler"/>, etc.)
+///   to react to pointer interactions.
+/// - Works with <see cref="TextMeshProUGUI"/> labels and optional extra icons.
+/// - Colors are assigned per state via the Inspector.
+/// </summary>
 public class CustomButton : MonoBehaviour,
     IPointerEnterHandler, IPointerExitHandler,
-    IPointerDownHandler,   IPointerUpHandler
+    IPointerDownHandler, IPointerUpHandler
 {
+    #region Inspector Fields
+
     [Header("UI References")]
-    [Tooltip("Image background untuk mengganti warna (optional)")]
+    [Tooltip("Background image to tint when state changes (required).")]
     [SerializeField] private Image backgroundImage;
-    [Tooltip("Image tambahan, misal icon, yang juga akan di-tint (optional)")]
+
+    [Tooltip("Optional extra image, e.g. an icon, that will also be tinted.")]
     [SerializeField] private Image extraImage;
-    [Tooltip("TextMeshPro label untuk mengganti warna (optional)")]
+
+    [Tooltip("Optional label text (TextMeshPro) to tint on state changes.")]
     [SerializeField] private TextMeshProUGUI labelText;
 
     [Header("Background Colors")]
-    [SerializeField] private Color normalBg   = new Color(0,0,0,0);
-    [SerializeField] private Color hoverBg    = new Color(0.6f,0.5f,0.9f,1f);
-    [SerializeField] private Color pressedBg  = new Color(0.5f,0.4f,0.8f,1f);
-    [SerializeField] private Color disabledBg = new Color(0,0,0,0.2f);
+    [SerializeField] private Color normalBg   = new Color(0, 0, 0, 0);
+    [SerializeField] private Color hoverBg    = new Color(0.6f, 0.5f, 0.9f, 1f);
+    [SerializeField] private Color pressedBg  = new Color(0.5f, 0.4f, 0.8f, 1f);
+    [SerializeField] private Color disabledBg = new Color(0, 0, 0, 0.2f);
 
     [Header("Extra Image Colors")]
     [SerializeField] private Color normalExtra   = Color.white;
@@ -34,32 +47,56 @@ public class CustomButton : MonoBehaviour,
     [SerializeField] private Color pressedText  = Color.white;
     [SerializeField] private Color disabledText = Color.gray;
 
+    #endregion
+
+    /// <summary>
+    /// Cached reference to the attached Unity <see cref="Button"/>.
+    /// </summary>
     private Button _button;
 
+    #region Unity Lifecycle
+
+    /// <summary>
+    /// Unity Reset: auto-assigns references when first added in the editor.
+    /// </summary>
     private void Reset()
     {
         backgroundImage = GetComponent<Image>();
         labelText       = GetComponentInChildren<TextMeshProUGUI>();
-        // extraImage biarkan kosong kalau tidak ada
+        // extraImage remains optional
     }
 
+    /// <summary>
+    /// Unity Awake: caches references and applies initial state.
+    /// </summary>
     private void Awake()
     {
         _button = GetComponent<Button>();
 
         if (backgroundImage == null)
+        {
             backgroundImage = GetComponent<Image>();
+        }
+
         if (labelText == null)
+        {
             labelText = GetComponentInChildren<TextMeshProUGUI>(includeInactive: true);
-        // extraImage tetap optional
+        }
 
         ApplyState(_button.interactable ? State.Normal : State.Disabled);
     }
 
+    /// <summary>
+    /// Unity OnEnable: ensures correct state is applied on re-enable.
+    /// </summary>
     private void OnEnable()
     {
         ApplyState(_button.interactable ? State.Normal : State.Disabled);
     }
+
+    #endregion
+
+    #region Pointer Event Handlers
 
     public void OnPointerEnter(PointerEventData eventData)
     {
@@ -85,11 +122,22 @@ public class CustomButton : MonoBehaviour,
         ApplyState(State.Hover);
     }
 
+    #endregion
+
+    #region State Handling
+
+    /// <summary>
+    /// Internal button state enum.
+    /// </summary>
     private enum State { Normal, Hover, Pressed, Disabled }
 
+    /// <summary>
+    /// Applies colors to background, extra image, and label text
+    /// according to the specified button state.
+    /// </summary>
     private void ApplyState(State s)
     {
-        // 1) Tint backgroundImage
+        // 1) Tint background
         if (backgroundImage != null)
         {
             switch (s)
@@ -101,7 +149,7 @@ public class CustomButton : MonoBehaviour,
             }
         }
 
-        // 2) Tint extraImage dengan warna khusus extra
+        // 2) Tint extra image
         if (extraImage != null)
         {
             switch (s)
@@ -113,7 +161,7 @@ public class CustomButton : MonoBehaviour,
             }
         }
 
-        // 3) Tint labelText
+        // 3) Tint text
         if (labelText != null)
         {
             switch (s)
@@ -125,4 +173,6 @@ public class CustomButton : MonoBehaviour,
             }
         }
     }
+
+    #endregion
 }

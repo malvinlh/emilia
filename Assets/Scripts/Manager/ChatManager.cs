@@ -9,6 +9,13 @@ using System.Text.RegularExpressions;
 using System.IO;
 using EMILIA.Data;
 
+/// <summary>
+/// Orchestrates the chat experience:
+/// - builds chat bubbles and history sidebar
+/// - manages send/mic UI, auto-scroll, and avatar animations
+/// - coordinates conversation lifecycle and message persistence
+/// - integrates with normal and “agentic/reasoning” AI flows
+/// </summary>
 public class ChatManager : MonoBehaviour
 {
     #region Inspector Fields
@@ -24,11 +31,11 @@ public class ChatManager : MonoBehaviour
     [SerializeField] private Button         _sendButton;
 
     [Header("Reasoning (Agentic)")]
-    [SerializeField] private Button         _reasoningSendButton; // Toggle ON
-    [SerializeField] private Button         _reasoningStopButton; // Toggle OFF
+    [SerializeField] private Button         _reasoningSendButton; // toggle ON
+    [SerializeField] private Button         _reasoningStopButton; // toggle OFF
 
     [Header("Audio Recording")]
-    [SerializeField] private RecordAudio    _recorder; // single mic button dikelola RecordAudio
+    [SerializeField] private RecordAudio    _recorder; // single mic button handled by RecordAudio
 
     [Header("Delete Confirmation UI")]
     [SerializeField] private GameObject     _deleteChatSetting;
@@ -37,7 +44,7 @@ public class ChatManager : MonoBehaviour
 
     [Header("Avatar Fade Settings")]
     [SerializeField] private Image[] _avatarImages;
-    [SerializeField] private float avatarFadeTime = 0.25f; // fade-out & fade-in
+    [SerializeField] private float avatarFadeTime = 0.25f;  // fade-out & fade-in
     [SerializeField] private float idleAlpha     = 1.0f;
     [SerializeField] private float thinkingAlpha = 1.0f;
 
@@ -50,9 +57,9 @@ public class ChatManager : MonoBehaviour
     [SerializeField, Range(0f, 0.2f)] private float _autoScrollThreshold = 0.05f; // 0 = bottom, 1 = top
     private bool _autoScrollEnabled = true;
     private Coroutine _scrollCo;
-    
+
     [Header("Navigation")]
-    [SerializeField] private Button _homeButton; 
+    [SerializeField] private Button _homeButton;
 
     #endregion
 
@@ -64,6 +71,7 @@ public class ChatManager : MonoBehaviour
     private const string BotSender           = "Bot";
     private const string ReasoningSender     = "Reasoning";
 
+    /// <summary>Matches "_cvNN" suffix and captures the NN part.</summary>
     private static readonly Regex ConversationRegex =
         new Regex(@"cv(\d+)$", RegexOptions.Compiled);
 
@@ -72,70 +80,91 @@ public class ChatManager : MonoBehaviour
 
     [SerializeField] private int animatorLayerIndex = 0;
 
+    /// <summary>Public for other systems to set the active user.</summary>
     [HideInInspector] public string CurrentUserId;
+
     private string _currentConversationId;
     private string _pendingDeleteId;
 
     private bool   _isAwaitingResponse;
-    private bool   _isReasoningMode = false;
-    private bool   _isMicOn         = false;
+    private bool   _isReasoningMode;
+    private bool   _isMicOn;
 
+    /// <summary>In-memory cache of conversationId → messages.</summary>
     private readonly Dictionary<string, List<Message>> _messageCache = new();
+
+    /// <summary>Set of conversationIds currently "typing".</summary>
     private readonly HashSet<string> _isTyping = new();
+
+    /// <summary>User's known conversation ids.</summary>
     private readonly List<string> _userConvs = new();
 
-    private readonly Dictionary<string, string> _topicCache     = new();
-    private readonly HashSet<string> _topicRequested            = new();
+    /// <summary>ConversationId → generated topic/title.</summary>
+    private readonly Dictionary<string, string> _topicCache = new();
+
+    /// <summary>Conversations for which a topic generation call is in flight.</summary>
+    private readonly HashSet<string> _topicRequested = new();
+
+    /// <summary>ConversationId → last summarized user/bot pair count.</summary>
     private readonly Dictionary<string, int> _lastSummarizedPairCount = new();
 
     private Coroutine _switchCo;
 
-    // autoscroll typing hanya sekali per conversation
+    /// <summary>Tracks if we already autoscrolled when typing first appeared in a conversation.</summary>
     private readonly HashSet<string> _typingAutoscrolled = new();
 
-    // === NEW: flag global — true jika ada typing di conversation manapun
-    private bool IsAnyTyping => _isTyping != null && _isTyping.Count > 0;
+    /// <summary>True if any conversation is in "typing" state.</summary>
+    private bool IsAnyTyping => _isTyping is { Count: > 0 };
 
     #endregion
 
     #region Unity
 
+    /// <summary>
+    /// Unity lifecycle. Caches avatars, loads user, and initializes UI wiring.
+    /// </summary>
     private void Awake()
     {
         if (_avatarImages == null || _avatarImages.Length == 0)
+        {
             _avatarImages = GetComponentsInChildren<Image>(true);
+        }
 
         LoadCurrentUser();
         InitializeUI();
     }
 
+    /// <summary>
+    /// After Awake: fetch history so the sidebar is populated.
+    /// </summary>
     private void Start()
     {
         FetchAndPopulateHistory();
     }
 
+    /// <summary>Subscribes to recorder events when enabled.</summary>
     private void OnEnable()
     {
-        if (_recorder != null)
-        {
-            _recorder.OnSaved += OnAudioSaved;
-            _recorder.OnMicStateChanged += HandleMicStateChanged;
-        }
+        if (_recorder == null) return;
+        _recorder.OnSaved += OnAudioSaved;
+        _recorder.OnMicStateChanged += HandleMicStateChanged;
     }
 
+    /// <summary>Unsubscribes from recorder events when disabled.</summary>
     private void OnDisable()
     {
-        if (_recorder != null)
-        {
-            _recorder.OnSaved -= OnAudioSaved;
-            _recorder.OnMicStateChanged -= HandleMicStateChanged;
-        }
+        if (_recorder == null) return;
+        _recorder.OnSaved -= OnAudioSaved;
+        _recorder.OnMicStateChanged -= HandleMicStateChanged;
     }
 
     #endregion
 
     #region Init & Session
 
+    /// <summary>
+    /// Loads the user from PlayerPrefs and resets the session state if user changed.
+    /// </summary>
     private void LoadCurrentUser()
     {
         var nick = PlayerPrefs.GetString(PrefKeyNickname, "");
@@ -153,10 +182,12 @@ public class ChatManager : MonoBehaviour
         ClearChat();
     }
 
+    /// <summary>
+    /// Wires up UI, sets initial visibility states, and registers button handlers.
+    /// </summary>
     private void InitializeUI()
     {
-        if (_deleteChatSetting != null)
-            _deleteChatSetting.SetActive(false);
+        if (_deleteChatSetting != null) _deleteChatSetting.SetActive(false);
 
         _newChatButton?.onClick.AddListener(OnNewChatClicked);
         _sendButton    ?.onClick.AddListener(OnSendClicked);
@@ -164,13 +195,12 @@ public class ChatManager : MonoBehaviour
         if (_reasoningSendButton != null) _reasoningSendButton.onClick.AddListener(EnterReasoningMode);
         if (_reasoningStopButton != null) _reasoningStopButton.onClick.AddListener(ExitReasoningMode);
 
-        if (_scrollRect != null)
-            _scrollRect.onValueChanged.AddListener(OnScrollChanged);
+        if (_scrollRect != null) _scrollRect.onValueChanged.AddListener(OnScrollChanged);
 
-        // ======== STATE AWAL ========
+        // Initial input state
         if (_inputField != null)
         {
-            _inputField.text = "";
+            _inputField.text = string.Empty;
             _inputField.onValueChanged.AddListener(OnInputChanged);
         }
         if (_sendButton != null) _sendButton.gameObject.SetActive(false);
@@ -190,35 +220,30 @@ public class ChatManager : MonoBehaviour
         _deleteYesButton?.onClick.AddListener(ConfirmDeleteConversation);
     }
 
+    /// <summary>
+    /// Input change handler to toggle send/mic visibility.
+    /// </summary>
     private void OnInputChanged(string _)
     {
         UpdateMicAndSendVisibility();
     }
 
+    /// <summary>
+    /// Switches the active user and fully resets the in-memory session state.
+    /// </summary>
+    /// <param name="newUserId">New user id to set as active.</param>
     public void OnUserChanged(string newUserId)
     {
         if (string.Equals(CurrentUserId, newUserId, StringComparison.Ordinal)) return;
         CurrentUserId = newUserId;
 
-        _messageCache.Clear();
-        _isTyping.Clear();
-        _topicCache.Clear();
-        _topicRequested.Clear();
-        _lastSummarizedPairCount.Clear();
-        _userConvs.Clear();
-        _currentConversationId = null;
-        _typingAutoscrolled.Clear();
-        ClearChat();
-
-        _isReasoningMode = false;
-        _isMicOn         = false;
-
-        ApplyReasoningVisibilityByMode();
-        UpdateMicAndSendVisibility();  // <- penting setelah _isTyping.Clear()
-        UpdateOtherInteractables();
+        ResetSessionState();
         FetchAndPopulateHistory();
     }
 
+    /// <summary>
+    /// Clears all caches and brings the UI back to a neutral state for a fresh session.
+    /// </summary>
     private void ResetSessionState()
     {
         _messageCache.Clear();
@@ -235,14 +260,15 @@ public class ChatManager : MonoBehaviour
         _isMicOn         = false;
 
         ApplyReasoningVisibilityByMode();
-        UpdateMicAndSendVisibility();  // <- penting setelah _isTyping.Clear()
+        UpdateMicAndSendVisibility();
         UpdateOtherInteractables();
     }
 
     #endregion
 
-    #region Reasoning Toggle (FadeOut -> Switch Instan -> FadeIn)
+    #region Reasoning Toggle (FadeOut → Switch → FadeIn)
 
+    /// <summary>Enters “reasoning/agentic” mode and animates the avatar to the thinking state.</summary>
     private void EnterReasoningMode()
     {
         _isReasoningMode = true;
@@ -251,6 +277,7 @@ public class ChatManager : MonoBehaviour
         UpdateOtherInteractables();
     }
 
+    /// <summary>Exits “reasoning/agentic” mode and animates the avatar back to idle.</summary>
     private void ExitReasoningMode()
     {
         _isReasoningMode = false;
@@ -259,12 +286,14 @@ public class ChatManager : MonoBehaviour
         UpdateOtherInteractables();
     }
 
+    /// <summary>Starts the fade-out → state switch → fade-in animation chain.</summary>
     private void StartSwitchWithFade(int targetStateHash, float appearAlpha)
     {
         if (_switchCo != null) StopCoroutine(_switchCo);
         _switchCo = StartCoroutine(CoSwitchAnimWithFade(targetStateHash, appearAlpha));
     }
 
+    /// <summary>Coroutine: fades out, switches animator state, then fades in.</summary>
     private IEnumerator CoSwitchAnimWithFade(int targetHash, float appearAlpha)
     {
         yield return CoFadeImages(0f, avatarFadeTime);
@@ -273,9 +302,11 @@ public class ChatManager : MonoBehaviour
         yield return CoFadeImages(appearAlpha, avatarFadeTime);
     }
 
+    /// <summary>Coroutine: lerps alpha of all avatar images over <paramref name="dur"/>.</summary>
     private IEnumerator CoFadeImages(float targetAlpha, float dur)
     {
         if (_avatarImages == null || _avatarImages.Length == 0) yield break;
+
         float t = 0f;
         float start = _avatarImages[0].color.a;
 
@@ -283,6 +314,7 @@ public class ChatManager : MonoBehaviour
         {
             t += Time.deltaTime;
             float a = Mathf.Lerp(start, targetAlpha, t / dur);
+
             for (int i = 0; i < _avatarImages.Length; i++)
             {
                 var c = _avatarImages[i].color;
@@ -291,6 +323,7 @@ public class ChatManager : MonoBehaviour
             }
             yield return null;
         }
+
         for (int i = 0; i < _avatarImages.Length; i++)
         {
             var c = _avatarImages[i].color;
@@ -299,18 +332,24 @@ public class ChatManager : MonoBehaviour
         }
     }
 
+    /// <summary>Shows the correct “Reasoning ON/OFF” button for the current mode.</summary>
     private void ApplyReasoningVisibilityByMode()
     {
         if (_reasoningSendButton != null)
+        {
             _reasoningSendButton.gameObject.SetActive(!_isReasoningMode);
+        }
         if (_reasoningStopButton != null)
+        {
             _reasoningStopButton.gameObject.SetActive(_isReasoningMode);
+        }
     }
 
     #endregion
 
-    #region Mic/Send Visibility (pakai GameObject.SetActive)
+    #region Mic/Send Visibility
 
+    /// <summary>External callback from <see cref="RecordAudio"/> when mic state changes.</summary>
     private void HandleMicStateChanged(bool isOn)
     {
         _isMicOn = isOn;
@@ -319,10 +358,11 @@ public class ChatManager : MonoBehaviour
     }
 
     /// <summary>
-    /// - Recording: mic terlihat, send hidden.
-    /// - Ada teks:  send terlihat, mic hidden.
-    /// - Kosong:    mic terlihat, send hidden.
-    /// - Menunggu AI / ada typing di mana pun: mic tetap terlihat tapi non-interactable (waitingForAI).
+    /// Decides which control to show:
+    /// - Recording: mic visible, send hidden.
+    /// - Text present: send visible, mic hidden.
+    /// - Empty: mic visible, send hidden.
+    /// While waiting for AI (any conversation typing), mic remains visible but disabled.
     /// </summary>
     private void UpdateMicAndSendVisibility()
     {
@@ -332,35 +372,19 @@ public class ChatManager : MonoBehaviour
         if (_isMicOn)
         {
             if (_sendButton != null) _sendButton.gameObject.SetActive(false);
-            if (_recorder  != null)  _recorder.SetUIState(
-                isOn: true,
-                uiEnabled: true,
-                forceHide: false,
-                waitingForAI: waitingGlobal
-            );
+            _recorder?.SetUIState(isOn: true, uiEnabled: true, forceHide: false, waitingForAI: waitingGlobal);
+            return;
+        }
+
+        if (hasText)
+        {
+            if (_sendButton != null) _sendButton.gameObject.SetActive(true);
+            _recorder?.SetUIState(isOn: false, uiEnabled: false, forceHide: true, waitingForAI: waitingGlobal);
         }
         else
         {
-            if (hasText)
-            {
-                if (_sendButton != null) _sendButton.gameObject.SetActive(true);
-                if (_recorder  != null)  _recorder.SetUIState(
-                    isOn: false,
-                    uiEnabled: false,
-                    forceHide: true,
-                    waitingForAI: waitingGlobal
-                );
-            }
-            else
-            {
-                if (_sendButton != null) _sendButton.gameObject.SetActive(false);
-                if (_recorder  != null)  _recorder.SetUIState(
-                    isOn: false,
-                    uiEnabled: true,
-                    forceHide: false,
-                    waitingForAI: waitingGlobal
-                );
-            }
+            if (_sendButton != null) _sendButton.gameObject.SetActive(false);
+            _recorder?.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: waitingGlobal);
         }
     }
 
@@ -368,6 +392,7 @@ public class ChatManager : MonoBehaviour
 
     #region Awaiting & Other Interactables
 
+    /// <summary>Sets the “awaiting AI” flag and refreshes all interactivity.</summary>
     private void SetAwaiting(bool value)
     {
         _isAwaitingResponse = value;
@@ -375,23 +400,26 @@ public class ChatManager : MonoBehaviour
         UpdateOtherInteractables();
     }
 
+    /// <summary>Locks/unlocks UI widgets (input, reasoning toggles, home) based on AI state.</summary>
     private void UpdateOtherInteractables()
     {
         bool waitingGlobal = (_isAwaitingResponse || IsAnyTyping);
 
-        // === Kunci toggle reasoning saat AI merespon ===
         if (_reasoningSendButton != null)
+        {
             _reasoningSendButton.interactable = !waitingGlobal && !_isReasoningMode;
-
+        }
         if (_reasoningStopButton != null)
-            _reasoningStopButton.interactable = !waitingGlobal &&  _isReasoningMode;
+        {
+            _reasoningStopButton.interactable = !waitingGlobal && _isReasoningMode;
+        }
 
-        // === Input Field terkunci saat AI merespon ===
         if (_inputField != null)
         {
             _inputField.readOnly     = waitingGlobal;
             _inputField.interactable = !waitingGlobal;
 
+            // If locking while focused, drop focus and keep caret at end.
             if (waitingGlobal && _inputField.isFocused)
             {
                 _inputField.DeactivateInputField();
@@ -401,21 +429,17 @@ public class ChatManager : MonoBehaviour
             }
         }
 
-        // === Kunci tombol Home saat AI merespon ===
-        if (_homeButton != null)
-            _homeButton.interactable = !waitingGlobal;
+        if (_homeButton != null) _homeButton.interactable = !waitingGlobal;
 
-        // === New Chat tetap bisa diinteraksi ===
-        if (_newChatButton != null)
-            _newChatButton.interactable = true;
-
-        // Mic interactivity tetap diatur via RecordAudio.SetUIState(waitingForAI)
+        // New Chat intentionally always enabled
+        if (_newChatButton != null) _newChatButton.interactable = true;
     }
 
     #endregion
 
-    #region Audio → kirim langsung (Rule 3)
+    #region Audio → Transcribe → Send
 
+    /// <summary>Called by <see cref="RecordAudio"/> once an audio file is saved.</summary>
     private void OnAudioSaved(string filePath)
     {
         if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
@@ -426,6 +450,10 @@ public class ChatManager : MonoBehaviour
         StartCoroutine(TranscribeAndSendDirect(filePath));
     }
 
+    /// <summary>
+    /// Transcribes the audio file and sends the resulting text as a user message,
+    /// creating a new conversation if needed.
+    /// </summary>
     private IEnumerator TranscribeAndSendDirect(string filePath)
     {
         SetAwaiting(true);
@@ -433,7 +461,7 @@ public class ChatManager : MonoBehaviour
         string finalText = null;
         yield return ServiceManager.Instance.TranscribeApi.TranscribeFile(
             filePath,
-            onSuccess: text => { finalText = text ?? ""; },
+            onSuccess: text => { finalText = text ?? string.Empty; },
             onError:   err  => Debug.LogError($"Transcribe error: {err}")
         );
 
@@ -443,17 +471,13 @@ public class ChatManager : MonoBehaviour
 
             if (string.IsNullOrEmpty(_currentConversationId))
             {
-                if (_isReasoningMode)
-                    StartNewConversationForReasoning(finalText);
-                else
-                    StartNewConversation(finalText);
+                if (_isReasoningMode) StartNewConversationForReasoning(finalText);
+                else                  StartNewConversation(finalText);
             }
             else
             {
-                if (_isReasoningMode)
-                    StartCoroutine(SendUserMessageReasoning(finalText, _currentConversationId));
-                else
-                    StartCoroutine(SendUserMessage(finalText, _currentConversationId));
+                if (_isReasoningMode) StartCoroutine(SendUserMessageReasoning(finalText, _currentConversationId));
+                else                  StartCoroutine(SendUserMessage(finalText, _currentConversationId));
             }
         }
         else
@@ -462,7 +486,7 @@ public class ChatManager : MonoBehaviour
             SetAwaiting(false);
         }
 
-        if (_inputField != null) _inputField.text = "";
+        if (_inputField != null) _inputField.text = string.Empty;
         _isMicOn = false;
         UpdateMicAndSendVisibility();
     }
@@ -471,6 +495,7 @@ public class ChatManager : MonoBehaviour
 
     #region History Sidebar
 
+    /// <summary>Loads the user’s conversation ids and builds the sidebar buttons.</summary>
     private void FetchAndPopulateHistory()
     {
         StartCoroutine(ServiceManager.Instance.ChatService.FetchUserConversations(
@@ -485,15 +510,24 @@ public class ChatManager : MonoBehaviour
         ));
     }
 
+    /// <summary>Clears existing buttons and rebuilds them for the provided ids.</summary>
     private void PopulateHistoryButtons(string[] convIds)
     {
         for (int i = _chatHistoryParent.childCount - 1; i >= 0; i--)
+        {
             Destroy(_chatHistoryParent.GetChild(i).gameObject);
+        }
 
         for (int i = 0; i < convIds.Length; i++)
+        {
             SetupHistoryButton(convIds[i], i);
+        }
     }
 
+    /// <summary>
+    /// Instantiates a history button, sets its label (topic or placeholder),
+    /// and wires its delete interaction.
+    /// </summary>
     private void SetupHistoryButton(string convId, int index)
     {
         var go = Instantiate(_historyButtonPrefab, _chatHistoryParent);
@@ -524,9 +558,13 @@ public class ChatManager : MonoBehaviour
                     var firstUser = msgs.FirstOrDefault(m => m.Sender != BotSender);
                     var firstBot  = msgs.FirstOrDefault(m => m.Sender == BotSender);
                     if (firstUser != null && firstBot != null)
+                    {
                         TryGenerateTopicOnce(convId, firstUser.Text, firstBot.Text, hb);
+                    }
                     else
+                    {
                         hb.SetLabel(NewChatLabel);
+                    }
                 },
                 err => Debug.LogWarning($"Fetch conv for topic failed: {err}")
             ));
@@ -534,22 +572,25 @@ public class ChatManager : MonoBehaviour
 
         var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
         if (delBtn != null)
+        {
             delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
+        }
     }
 
+    /// <summary>Loads a conversation into the chat panel and refreshes UI locks.</summary>
     public void OnHistoryClicked(string conversationId)
     {
         _currentConversationId = conversationId;
         ClearChat();
 
-        // Kalau convo ini sedang typing → treat as awaiting (untuk kontrol lain),
-        // mic & input dikontrol global via IsAnyTyping.
-        SetAwaiting(_isTyping.Contains(conversationId));
+        SetAwaiting(_isTyping.Contains(conversationId)); // respect global typing state
         UpdateMicAndSendVisibility();
         UpdateOtherInteractables();
 
-        if (_messageCache.TryGetValue(conversationId, out var cached))
+        if (_messageCache.TryGetValue(conversationId, out _))
+        {
             RebuildChatUI(conversationId);
+        }
 
         StartCoroutine(ServiceManager.Instance.ChatService.FetchConversationWithMessages(
             conversationId,
@@ -584,44 +625,43 @@ public class ChatManager : MonoBehaviour
 
     #region Sending & New Conversation
 
+    /// <summary>Clears the panel and resets current conversation selection.</summary>
     private void OnNewChatClicked()
     {
         ClearChat();
         _currentConversationId = null;
     }
 
+    /// <summary>Reads the input box and sends a message via normal (non-agentic) flow.</summary>
     private void OnSendClicked()
     {
         var text = _inputField.text.Trim();
         if (string.IsNullOrEmpty(text) || _isAwaitingResponse) return;
 
-        _inputField.text = "";
+        _inputField.text = string.Empty;
         CreateBubble(text, true);
 
         if (string.IsNullOrEmpty(_currentConversationId))
         {
-            if (_isReasoningMode)
-                StartNewConversationForReasoning(text);
-            else
-                StartNewConversation(text);
+            if (_isReasoningMode) StartNewConversationForReasoning(text);
+            else                  StartNewConversation(text);
         }
         else
         {
-            if (_isReasoningMode)
-                StartCoroutine(SendUserMessageReasoning(text, _currentConversationId));
-            else
-                StartCoroutine(SendUserMessage(text, _currentConversationId));
+            if (_isReasoningMode) StartCoroutine(SendUserMessageReasoning(text, _currentConversationId));
+            else                  StartCoroutine(SendUserMessage(text, _currentConversationId));
         }
 
         UpdateMicAndSendVisibility();
     }
 
+    /// <summary>Agentic send handler (kept if you trigger it elsewhere).</summary>
     private void OnSendReasoningClicked()
     {
         var text = _inputField.text.Trim();
         if (string.IsNullOrEmpty(text) || _isAwaitingResponse) return;
 
-        _inputField.text = "";
+        _inputField.text = string.Empty;
         CreateBubble(text, true);
 
         if (string.IsNullOrEmpty(_currentConversationId))
@@ -632,6 +672,7 @@ public class ChatManager : MonoBehaviour
         UpdateMicAndSendVisibility();
     }
 
+    /// <summary>Creates a new conversation and sends the first user message (normal flow).</summary>
     private void StartNewConversation(string text)
     {
         var convoId = GenerateConversationId();
@@ -649,6 +690,7 @@ public class ChatManager : MonoBehaviour
         ));
     }
 
+    /// <summary>Creates a new conversation and sends the first user message (agentic flow).</summary>
     private void StartNewConversationForReasoning(string text)
     {
         var convoId = GenerateConversationId();
@@ -666,6 +708,9 @@ public class ChatManager : MonoBehaviour
         ));
     }
 
+    /// <summary>
+    /// Generates the next conversation id in the form "{user}_cvNN".
+    /// </summary>
     private string GenerateConversationId()
     {
         int nextIdx = _userConvs
@@ -680,6 +725,7 @@ public class ChatManager : MonoBehaviour
         return $"{CurrentUserId}_cv{nextIdx:00}";
     }
 
+    /// <summary>Adds a new history button to the top of the list.</summary>
     private void AddHistoryButtonForNew(string convId, string initialMsg)
     {
         var go = Instantiate(_historyButtonPrefab, _chatHistoryParent);
@@ -690,9 +736,12 @@ public class ChatManager : MonoBehaviour
 
         var delBtn = go.transform.Find("DeleteButton")?.GetComponent<Button>();
         if (delBtn != null)
+        {
             delBtn.onClick.AddListener(() => OnDeleteClicked(convId));
+        }
     }
 
+    /// <summary>Persists the user message then triggers the AI turn (normal flow).</summary>
     private IEnumerator SendUserMessage(string text, string convoId)
     {
         var userMsg = new Message {
@@ -714,6 +763,7 @@ public class ChatManager : MonoBehaviour
         );
     }
 
+    /// <summary>Persists the user message then triggers the AI turn (agentic flow).</summary>
     private IEnumerator SendUserMessageReasoning(string text, string convoId)
     {
         var userMsg = new Message {
@@ -739,17 +789,22 @@ public class ChatManager : MonoBehaviour
 
     #region AI Handling & Typing
 
+    /// <summary>
+    /// Handles the standard (non-agentic) AI turn:
+    /// - shows typing
+    /// - calls Chat API
+    /// - injects bot response and saves it
+    /// - updates topic and summary hooks
+    /// </summary>
     private IEnumerator HandleAITurn(string userMessage, string convoId)
     {
         SetAwaiting(true);
 
-        // boleh dipertahankan, tapi mic juga akan di-lock via global IsAnyTyping
-        if (_recorder != null)
-            _recorder.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
+        _recorder?.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
 
         _isTyping.Add(convoId);
-        UpdateMicAndSendVisibility(); // global lock (mic)
-        UpdateOtherInteractables();   // global lock (input)
+        UpdateMicAndSendVisibility();
+        UpdateOtherInteractables();
 
         _messageCache[convoId].Add(new Message {
             Id             = TypingPlaceholderId,
@@ -759,8 +814,7 @@ public class ChatManager : MonoBehaviour
             SentAt         = DateTime.UtcNow
         });
 
-        if (_currentConversationId == convoId)
-            RebuildChatUI(convoId);
+        if (_currentConversationId == convoId) RebuildChatUI(convoId);
 
         yield return ServiceManager.Instance.ChatApi.SendPrompt(
             username: CurrentUserId,
@@ -771,7 +825,7 @@ public class ChatManager : MonoBehaviour
             onSuccess: response =>
             {
                 _isTyping.Remove(convoId);
-                UpdateMicAndSendVisibility(); // lepaskan lock jika tak ada typing lain
+                UpdateMicAndSendVisibility();
                 UpdateOtherInteractables();
 
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
@@ -792,12 +846,10 @@ public class ChatManager : MonoBehaviour
                 }
 
                 _typingAutoscrolled.Remove(convoId);
-
                 SaveAIMessage(response, convoId);
 
                 SetAwaiting(false);
-                if (_recorder != null)
-                    _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
+                _recorder?.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
 
                 TryGenerateTopicOnce(convoId, userMessage, response);
                 TrySummarizeEveryTwoPairs(convoId);
@@ -810,24 +862,27 @@ public class ChatManager : MonoBehaviour
                 UpdateOtherInteractables();
 
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
-
                 _typingAutoscrolled.Remove(convoId);
 
                 SetAwaiting(false);
-                if (_recorder != null)
-                    _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
+                _recorder?.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
 
-                if (_currentConversationId == convoId)
-                    RebuildChatUI(convoId);
+                if (_currentConversationId == convoId) RebuildChatUI(convoId);
             }
         );
     }
 
+    /// <summary>
+    /// Handles the agentic AI turn:
+    /// - shows typing
+    /// - calls Agentic API
+    /// - injects optional reasoning message + bot response
+    /// - persists messages and optional summary
+    /// </summary>
     private IEnumerator HandleAgenticTurn(string userMessage, string convoId)
     {
         SetAwaiting(true);
-        if (_recorder != null)
-            _recorder.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
+        _recorder?.SetUIState(isOn: false, uiEnabled: false, forceHide: false, waitingForAI: true);
 
         _isTyping.Add(convoId);
         UpdateMicAndSendVisibility();
@@ -841,8 +896,7 @@ public class ChatManager : MonoBehaviour
             SentAt         = DateTime.UtcNow
         });
 
-        if (_currentConversationId == convoId)
-            RebuildChatUI(convoId);
+        if (_currentConversationId == convoId) RebuildChatUI(convoId);
 
         yield return ServiceManager.Instance.AgenticApi.Send(
             userId:    CurrentUserId,
@@ -869,7 +923,7 @@ public class ChatManager : MonoBehaviour
                     StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(convoId, ReasoningSender, rMsg.Text));
                 }
 
-                var botText = res.response ?? "";
+                var botText = res.response ?? string.Empty;
                 var bMsg = new Message {
                     Id             = Guid.NewGuid().ToString(),
                     ConversationId = convoId,
@@ -889,8 +943,7 @@ public class ChatManager : MonoBehaviour
                 _typingAutoscrolled.Remove(convoId);
 
                 SetAwaiting(false);
-                if (_recorder != null)
-                    _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
+                _recorder?.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
 
                 if (!string.IsNullOrWhiteSpace(res.summary))
                 {
@@ -913,19 +966,17 @@ public class ChatManager : MonoBehaviour
                 UpdateOtherInteractables();
 
                 _messageCache[convoId].RemoveAll(m => m.Id == TypingPlaceholderId);
-
                 _typingAutoscrolled.Remove(convoId);
 
                 SetAwaiting(false);
-                if (_recorder != null)
-                    _recorder.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
+                _recorder?.SetUIState(isOn: false, uiEnabled: true, forceHide: false, waitingForAI: false);
 
-                if (_currentConversationId == convoId)
-                    RebuildChatUI(convoId);
+                if (_currentConversationId == convoId) RebuildChatUI(convoId);
             }
         );
     }
 
+    /// <summary>Saves the bot’s response to storage and bumps the conversation to the top of history.</summary>
     private void SaveAIMessage(string response, string convoId)
     {
         StartCoroutine(ServiceManager.Instance.ChatService.InsertMessage(
@@ -947,10 +998,13 @@ public class ChatManager : MonoBehaviour
 
     #region Topic & Summary
 
+    /// <summary>
+    /// Generates a short topic once (if none exists) using the first user/bot pair.
+    /// Updates DB title and the corresponding history button label.
+    /// </summary>
     private void TryGenerateTopicOnce(string convoId, string userText, string botText, HistoryButton hb = null)
     {
-        if (string.IsNullOrWhiteSpace(userText) || string.IsNullOrWhiteSpace(botText))
-            return;
+        if (string.IsNullOrWhiteSpace(userText) || string.IsNullOrWhiteSpace(botText)) return;
 
         var dbTitle = ServiceManager.Instance.ChatService.GetConversationTitle(convoId);
         if (!string.IsNullOrWhiteSpace(dbTitle))
@@ -962,8 +1016,7 @@ public class ChatManager : MonoBehaviour
             return;
         }
 
-        if (_topicCache.ContainsKey(convoId) || _topicRequested.Contains(convoId))
-            return;
+        if (_topicCache.ContainsKey(convoId) || _topicRequested.Contains(convoId)) return;
 
         _topicRequested.Add(convoId);
 
@@ -990,12 +1043,15 @@ public class ChatManager : MonoBehaviour
         ));
     }
 
+    /// <summary>
+    /// Requests an incremental summary every two user→bot message pairs.
+    /// Stores the last summarized pair count to avoid duplicate requests.
+    /// </summary>
     private void TrySummarizeEveryTwoPairs(string convoId)
     {
         if (!_messageCache.TryGetValue(convoId, out var msgs) || msgs == null) return;
 
         var ordered = msgs.OrderBy(m => m.SentAt).ToList();
-
         int pairs = 0;
         bool waitingForBot = false;
 
@@ -1031,13 +1087,14 @@ public class ChatManager : MonoBehaviour
 
     #region Delete Conversation
 
+    /// <summary>Opens the confirmation UI for deleting a conversation.</summary>
     public void OnDeleteClicked(string conversationId)
     {
         _pendingDeleteId = conversationId;
-        if (_deleteChatSetting != null)
-            _deleteChatSetting.SetActive(true);
+        if (_deleteChatSetting != null) _deleteChatSetting.SetActive(true);
     }
 
+    /// <summary>Confirms delete: removes messages first, then the conversation itself.</summary>
     private void ConfirmDeleteConversation()
     {
         if (string.IsNullOrEmpty(_pendingDeleteId)) return;
@@ -1049,6 +1106,7 @@ public class ChatManager : MonoBehaviour
         ));
     }
 
+    /// <summary>Coroutine that deletes the conversation and refreshes the sidebar.</summary>
     private IEnumerator ProceedDeleteConversation()
     {
         yield return ServiceManager.Instance.ChatService.DeleteConversation(
@@ -1073,6 +1131,9 @@ public class ChatManager : MonoBehaviour
 
     #region UI Rendering
 
+    /// <summary>
+    /// Rebuilds the visible chat panel from the cached messages of the given conversation.
+    /// </summary>
     private void RebuildChatUI(string convoId)
     {
         ClearChat();
@@ -1088,7 +1149,7 @@ public class ChatManager : MonoBehaviour
                 var ctrl = go.GetComponent<ChatBubbleController>();
                 StartCoroutine(AnimateTyping(ctrl));
 
-                // AUTOSCROLL TYPING: hanya SEKALI saat pertama kali typing muncul
+                // Auto-scroll exactly once when typing first appears
                 if (!_typingAutoscrolled.Contains(convoId))
                 {
                     RequestScrollToBottom(force: false);
@@ -1099,12 +1160,12 @@ public class ChatManager : MonoBehaviour
 
             if (m.Sender == ReasoningSender)
             {
-                string reasoning = m.Text ?? "";
+                string reasoning = m.Text ?? string.Empty;
                 string response  = null;
 
                 if (i + 1 < list.Count && list[i + 1].Sender == BotSender)
                 {
-                    response = list[i + 1].Text ?? "";
+                    response = list[i + 1].Text ?? string.Empty;
                     i++;
                 }
 
@@ -1128,25 +1189,30 @@ public class ChatManager : MonoBehaviour
             c1.SetText(m.Text);
         }
 
-        // Tidak auto-scroll di sini; caller yang menentukan.
+        // Caller decides whether to auto-scroll.
     }
 
+    /// <summary>Creates and appends a single chat bubble (user or bot) to the panel.</summary>
     private void CreateBubble(string message, bool isUser)
     {
         var prefab = isUser ? _userBubblePrefab : _aiBubblePrefab;
         var go     = Instantiate(prefab, _chatContentParent);
         go.GetComponent<ChatBubbleController>()?.SetText(message);
 
-        // USER BUBBLE: paksa scroll SEKALI ketika dibuat
+        // For user messages, always request an immediate scroll.
         RequestScrollToBottom(force: true);
     }
 
+    /// <summary>Removes all child chat bubble objects from the content parent.</summary>
     private void ClearChat()
     {
         for (int i = _chatContentParent.childCount - 1; i >= 0; i--)
+        {
             Destroy(_chatContentParent.GetChild(i).gameObject);
+        }
     }
 
+    /// <summary>Simple typing animation coroutine (“.” → “. .” → “. . .”).</summary>
     private IEnumerator AnimateTyping(ChatBubbleController ctrl)
     {
         var dots = new[] { "", ".", ". .", ". . ." };
@@ -1163,29 +1229,35 @@ public class ChatManager : MonoBehaviour
 
     #region Auto Scroll
 
+    /// <summary>
+    /// Tracks whether the user is near the bottom; only then do we auto-scroll.
+    /// </summary>
     private void OnScrollChanged(Vector2 _)
     {
         if (_scrollRect == null) return;
-        // Aktifkan autoscroll hanya kalau user berada dekat bawah
         _autoScrollEnabled = (_scrollRect.verticalNormalizedPosition <= _autoScrollThreshold);
     }
 
-    /// <summary> Minta scroll pindah ke bawah setelah layout selesai update. </summary>
+    /// <summary>
+    /// Requests a scroll-to-bottom once the next layout pass completes.
+    /// </summary>
+    /// <param name="force">If true, scroll even when user is not near bottom.</param>
     private void RequestScrollToBottom(bool force = false)
     {
         if (_scrollRect == null || _scrollRect.content == null) return;
-        if (!force && !_autoScrollEnabled) return; // hormati posisi user kecuali dipaksa
+        if (!force && !_autoScrollEnabled) return; // respect user position unless forced
         if (_scrollCo != null) StopCoroutine(_scrollCo);
         _scrollCo = StartCoroutine(CoScrollToBottom());
     }
 
+    /// <summary>Coroutine that waits one frame for layout, then jumps to bottom.</summary>
     private IEnumerator CoScrollToBottom()
     {
-        // tunggu layout update
-        yield return null;
+        yield return null; // wait layout
         LayoutRebuilder.ForceRebuildLayoutImmediate(_scrollRect.content);
         _scrollRect.verticalNormalizedPosition = 0f;
-        // satu frame ekstra (opsional)
+
+        // Optional: one more frame to ensure large layouts are settled
         yield return null;
         LayoutRebuilder.ForceRebuildLayoutImmediate(_scrollRect.content);
         _scrollRect.verticalNormalizedPosition = 0f;

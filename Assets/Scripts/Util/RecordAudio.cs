@@ -5,67 +5,105 @@ using UnityEngine.UI;
 using TMPro;
 
 [RequireComponent(typeof(AudioSource))]
+/// <summary>
+/// Provides microphone recording functionality with a single toggle button UI.
+/// 
+/// Features:
+/// - Records microphone input and saves as WAV files.
+/// - Exposes events for when a recording is saved or mic state changes.
+/// - Handles mic button UI states (visibility, interactability, blinking).
+/// - Optional integration with an input field to show "Listening..." placeholder.
+/// </summary>
 public class RecordAudio : MonoBehaviour
 {
-    #region Inspector
+    #region Inspector Fields
 
     [Header("Recording Settings")]
+    [Tooltip("Output file name for the recording.")]
     [SerializeField] private string outputFileName = "recording.wav";
-    [SerializeField] private string folderName     = "Recordings";
-    [SerializeField] private string micDevice      = "";
-    [SerializeField] private int    sampleRate     = 44100;
-    [SerializeField] private int    maxLengthSec   = 3599;
+
+    [Tooltip("Name of the folder where recordings are stored.")]
+    [SerializeField] private string folderName = "Recordings";
+
+    [Tooltip("Target microphone device (leave empty for default).")]
+    [SerializeField] private string micDevice = "";
+
+    [Tooltip("Sample rate of the recording (Hz).")]
+    [SerializeField] private int sampleRate = 44100;
+
+    [Tooltip("Maximum recording length in seconds (default: 3599).")]
+    [SerializeField] private int maxLengthSec = 3599;
 
     [Header("Mic UI (Single Button)")]
-    [SerializeField] private Button      micButton;        // tombol mic tunggal (toggle)
-    [SerializeField] private CanvasGroup micCanvasGroup;   // taruh di object tombol mic (atau parent)
-    [SerializeField] private float       blinkMinAlpha = 0.45f;
-    [SerializeField] private float       blinkMaxAlpha = 1.0f;
-    [SerializeField] private float       blinkSpeed    = 2.0f; // semakin besar, semakin cepat kedip
+    [Tooltip("Single toggle button to start/stop recording.")]
+    [SerializeField] private Button micButton;
 
-    // (Opsional) referensi input field — TIDAK lagi dimodifikasi dari kelas ini.
+    [Tooltip("CanvasGroup on the mic button for controlling alpha and raycasts.")]
+    [SerializeField] private CanvasGroup micCanvasGroup;
+
+    [Tooltip("Minimum alpha during blinking effect.")]
+    [SerializeField] private float blinkMinAlpha = 0.45f;
+
+    [Tooltip("Maximum alpha during blinking effect.")]
+    [SerializeField] private float blinkMaxAlpha = 1.0f;
+
+    [Tooltip("Blinking speed multiplier (higher = faster).")]
+    [SerializeField] private float blinkSpeed = 2.0f;
+
+    [Header("Optional Input Field")]
+    [Tooltip("Optional reference to input field to disable while recording.")]
     [SerializeField] private TMP_InputField _inputField;
 
     #endregion
 
     #region Events & State
 
+    /// <summary>
+    /// Event invoked after a recording is saved. Passes the file path.
+    /// </summary>
     public event Action<string> OnSaved;
-    public event Action<bool>   OnMicStateChanged;
 
+    /// <summary>
+    /// Event invoked whenever the mic state changes (true = recording).
+    /// </summary>
+    public event Action<bool> OnMicStateChanged;
+
+    /// <summary>
+    /// Indicates whether the microphone is currently recording.
+    /// </summary>
     public bool IsRecording { get; private set; }
 
-    private string    _directoryPath;
-    private string    _filePath;
+    private string _directoryPath;
+    private string _filePath;
     private AudioClip _recordedClip;
-    private float     _startTime;
+    private float _startTime;
     private Coroutine _blinkCo;
 
     #endregion
 
-    #region Unity
+    #region Unity Lifecycle
 
     private void Awake()
     {
-        // Siapkan folder simpan
-        string targetFolder = @"D:\Emilia\AI\Recordings";
+        // Ensure recording folder exists
+        string targetFolder = @"D:\Emilia\AI\Recordings"; // Hardcoded path
         if (!Directory.Exists(targetFolder))
             Directory.CreateDirectory(targetFolder);
 
         _directoryPath = targetFolder;
-        _filePath      = Path.Combine(_directoryPath, outputFileName);
+        _filePath = Path.Combine(_directoryPath, outputFileName);
 
-        if (micButton != null)  micButton.onClick.AddListener(OnMicClicked);
+        if (micButton != null) 
+            micButton.onClick.AddListener(OnMicClicked);
 
-        // Pastikan ada CanvasGroup agar alpha bisa diatur.
-        if (micCanvasGroup == null)
+        // Ensure CanvasGroup is available for alpha & raycast control
+        if (micCanvasGroup == null && micButton != null)
         {
-            if (micButton != null) micCanvasGroup = micButton.GetComponent<CanvasGroup>();
-            if (micCanvasGroup == null && micButton != null)
-                micCanvasGroup = micButton.gameObject.AddComponent<CanvasGroup>();
+            micCanvasGroup = micButton.GetComponent<CanvasGroup>() 
+                             ?? micButton.gameObject.AddComponent<CanvasGroup>();
         }
 
-        // State awal: mic terlihat (active) & tidak blinking
+        // Default UI state: visible, interactable, no blinking
         ApplyMicVisibility(true);
         ApplyMicInteractable(true);
         ApplyBlink(false);
@@ -73,34 +111,32 @@ public class RecordAudio : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (micButton != null) micButton.onClick.RemoveListener(OnMicClicked);
+        if (micButton != null)
+            micButton.onClick.RemoveListener(OnMicClicked);
     }
 
     #endregion
 
-    #region Public API (dipanggil ChatManager)
+    #region Public API
 
     /// <summary>
-    /// Sinkron UI mic:
-    /// - isOn: status rekaman saat ini (untuk kontrol blinking)
-    /// - uiEnabled: kalau terlihat, boleh diklik atau tidak
-    /// - forceHide: paksa sembunyikan (GameObject.SetActive(false))
-    /// - waitingForAI: jika true → non-interactable (global lock saat AI mengetik)
+    /// Synchronizes mic UI state with current logic.
     /// </summary>
+    /// <param name="isOn">True if currently recording (controls blinking).</param>
+    /// <param name="uiEnabled">If true, button is interactable.</param>
+    /// <param name="forceHide">If true, hides the mic button completely.</param>
+    /// <param name="waitingForAI">If true, disables interaction (global lock).</param>
     public void SetUIState(bool isOn, bool uiEnabled, bool forceHide, bool waitingForAI = false)
     {
         if (forceHide)
         {
-            // Disembunyikan total (misalnya saat input field sedang ada teks)
             ApplyBlink(false);
             ApplyMicVisibility(false);
             return;
         }
 
-        // Tampilkan mic
         ApplyMicVisibility(true);
 
-        // Kalau sedang menunggu AI → disable interactable, matikan blink (tapi tetap terlihat)
         if (waitingForAI)
         {
             ApplyMicInteractable(false);
@@ -108,18 +144,16 @@ public class RecordAudio : MonoBehaviour
             return;
         }
 
-        // Normal case
         ApplyMicInteractable(uiEnabled);
         ApplyBlink(isOn);
     }
 
     #endregion
 
-    #region UI callbacks
+    #region UI Callbacks
 
     private void OnMicClicked()
     {
-        // Abaikan klik jika button tidak tersedia/interactable
         if (micButton != null && !micButton.interactable) return;
 
         if (IsRecording) StopRecording();
@@ -130,40 +164,42 @@ public class RecordAudio : MonoBehaviour
 
     #region Recording
 
+    /// <summary>
+    /// Starts microphone recording using the configured settings.
+    /// </summary>
     public void StartRecording()
     {
         if (IsRecording) return;
 
         if (Microphone.devices.Length == 0)
         {
-            Debug.LogError("No microphone devices found!");
+            Debug.LogError("[RecordAudio] No microphone devices found.");
             return;
         }
 
         string device = string.IsNullOrEmpty(micDevice) ? Microphone.devices[0] : micDevice;
-        _recordedClip = Microphone.Start(device, loop:false, lengthSec:maxLengthSec, frequency:sampleRate);
-        _startTime    = Time.realtimeSinceStartup;
-        IsRecording   = true;
+        _recordedClip = Microphone.Start(device, loop: false, lengthSec: maxLengthSec, frequency: sampleRate);
+        _startTime = Time.realtimeSinceStartup;
+        IsRecording = true;
 
         OnMicStateChanged?.Invoke(true);
 
-        // Pastikan mic terlihat & blinking saat start
         ApplyMicVisibility(true);
         ApplyMicInteractable(true);
         ApplyBlink(true);
 
-        Debug.Log($"Recording started on '{device}'");
+        Debug.Log($"[RecordAudio] Recording started on device '{device}'");
     }
 
+    /// <summary>
+    /// Stops recording and saves the audio to disk if valid.
+    /// </summary>
     public void StopRecording()
     {
         if (!IsRecording) return;
 
-        try
-        {
-            Microphone.End(null);
-        }
-        catch { /* noop */ }
+        try { Microphone.End(null); }
+        catch { /* ignored */ }
 
         IsRecording = false;
 
@@ -173,30 +209,35 @@ public class RecordAudio : MonoBehaviour
         {
             var trimmed = TrimClip(_recordedClip, recordedSeconds);
             WavUtility.Save(_filePath, trimmed);
-            Debug.Log($"Recording saved to: {_filePath}");
+            Debug.Log($"[RecordAudio] Recording saved to: {_filePath}");
         }
         else
         {
-            Debug.LogWarning("No valid audio recorded, skipping save.");
+            Debug.LogWarning("[RecordAudio] No valid audio recorded, skipping save.");
         }
 
         _recordedClip = null;
 
         OnMicStateChanged?.Invoke(false);
 
-        // Hentikan blinking (kembali alpha penuh). Visibility/interactable akan diatur ChatManager.
         ApplyBlink(false);
         SetCanvasAlpha(1f);
 
-        // Beritahu ChatManager untuk upload/transcribe & mengatur UI berikutnya
+        // Notify listeners (e.g., ChatManager) that a recording is ready
         OnSaved?.Invoke(_filePath);
     }
 
+    /// <summary>
+    /// Trims the AudioClip to the specified length (in seconds).
+    /// </summary>
     private AudioClip TrimClip(AudioClip clip, float length)
     {
+        if (clip == null) return null;
+
         int samples = Mathf.Min((int)(length * clip.frequency), clip.samples);
         samples = Mathf.Max(samples, 0);
-        if (clip == null || samples == 0) return clip;
+
+        if (samples == 0) return clip;
 
         var data = new float[samples * clip.channels];
         clip.GetData(data, 0);
@@ -208,15 +249,15 @@ public class RecordAudio : MonoBehaviour
 
     #endregion
 
-    #region Visual (Blink tanpa Animator)
+    #region Visual Helpers (Blinking without Animator)
 
     private void ApplyMicVisibility(bool visible)
     {
         if (micButton != null)
             micButton.gameObject.SetActive(visible);
+
         if (!visible)
         {
-            // jika disembunyikan, pastikan blink mati & alpha reset
             ApplyBlink(false);
             SetCanvasAlpha(1f);
         }
@@ -227,10 +268,9 @@ public class RecordAudio : MonoBehaviour
         if (micButton != null)
             micButton.interactable = interactable;
 
-        // Sinkron juga ke CanvasGroup agar event raycast ikut nonaktif (aman dari klik)
         if (micCanvasGroup != null)
         {
-            micCanvasGroup.interactable   = interactable;
+            micCanvasGroup.interactable = interactable;
             micCanvasGroup.blocksRaycasts = interactable;
         }
     }
@@ -239,26 +279,22 @@ public class RecordAudio : MonoBehaviour
     {
         if (shouldBlink)
         {
-            // Disable input saat mic aktif
             if (_inputField != null)
             {
                 _inputField.interactable = false;
-                var placeholderText = _inputField.placeholder as TextMeshProUGUI;
-                if (placeholderText != null)
-                    placeholderText.text = "Listening...";
+                if (_inputField.placeholder is TextMeshProUGUI placeholder)
+                    placeholder.text = "Listening...";
             }
 
             StartBlink();
         }
         else
         {
-            // Enable input kembali
             if (_inputField != null)
             {
                 _inputField.interactable = true;
-                var placeholderText = _inputField.placeholder as TextMeshProUGUI;
-                if (placeholderText != null)
-                    placeholderText.text = "Write your message";
+                if (_inputField.placeholder is TextMeshProUGUI placeholder)
+                    placeholder.text = "Write your message";
             }
 
             StopBlink();
@@ -267,7 +303,6 @@ public class RecordAudio : MonoBehaviour
 
     private void StartBlink()
     {
-        // Catatan: tidak lagi mengubah _inputField dari sini.
         if (micCanvasGroup == null) return;
         if (_blinkCo != null) StopCoroutine(_blinkCo);
         _blinkCo = StartCoroutine(CoBlink());
@@ -282,7 +317,6 @@ public class RecordAudio : MonoBehaviour
 
     private System.Collections.IEnumerator CoBlink()
     {
-        // Kedip mulus: alpha = Lerp(min, max, 0.5 + 0.5*sin(t*speed))
         float t = 0f;
         while (true)
         {
@@ -302,7 +336,6 @@ public class RecordAudio : MonoBehaviour
         }
         else if (micButton != null)
         {
-            // fallback: ubah warna Image utama
             var img = micButton.GetComponent<Image>();
             if (img != null)
             {

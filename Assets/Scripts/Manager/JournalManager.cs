@@ -7,36 +7,63 @@ using UnityEngine.UI;
 using TMPro;
 using EMILIA.Data;
 
+/// <summary>
+/// Manages the Journal feature: lists user journals, handles create/edit flows,
+/// validates inputs, and coordinates delete confirmation.
+/// 
+/// UI model:
+/// - Home canvas shows a scrollable list of entries (each entry prefab wires Edit/Delete).
+/// - Journal canvas is reused for Create and Edit modes.
+/// - Delete canvas shows a confirmation dialog.
+/// 
+/// Data model:
+/// - Uses PlayerPrefs "Nickname" as the current user id.
+/// - Delegates persistence to <see cref="ServiceManager.Instance.JournalService"/>.
+/// </summary>
 public class JournalManager : MonoBehaviour
 {
     #region Inspector
 
     [Header("Home (List)")]
-    [SerializeField] private GameObject journalEntryPrefab;  // Prefab item list
-    [SerializeField] private Transform  homeContentParent;   // HomeCanvas/Viewport/Content
-    [SerializeField] private Button     newJournalButton;    // Tombol "New" di Home
-    [SerializeField] private GameObject bgNoNotes;           // BG-NoNotes (aktif saat list kosong)
+    [Tooltip("Prefab used to render each journal entry in the list.")]
+    [SerializeField] private GameObject journalEntryPrefab;     // Prefab item list
+    [Tooltip("Content Transform under the ScrollRect where entries are instantiated.")]
+    [SerializeField] private Transform  homeContentParent;      // HomeCanvas/Viewport/Content
+    [Tooltip("New button in the Home canvas.")]
+    [SerializeField] private Button     newJournalButton;       // "New" button on Home
+    [Tooltip("Background object shown when there are no notes.")]
+    [SerializeField] private GameObject bgNoNotes;              // BG-NoNotes (active when empty)
 
     [Header("Canvases")]
+    [Tooltip("Home canvas (list view).")]
     [SerializeField] private GameObject homeCanvas;
-    [SerializeField] private GameObject journalCanvas;       // Dipakai untuk Create & Edit
+    [Tooltip("Journal canvas used for both Create and Edit.")]
+    [SerializeField] private GameObject journalCanvas;          // Used for Create & Edit
+    [Tooltip("Delete confirmation canvas.")]
     [SerializeField] private GameObject deleteCanvas;
 
     [Header("JournalCanvas (Create & Edit)")]
-    [SerializeField] private TextMeshProUGUI headerText;     // "Create Journal" / "Edit Journal" (opsional)
-    [SerializeField] private TMP_InputField  titleInput;     // Title input
-    [SerializeField] private TMP_InputField  contentInput;   // Content input (TMP)
-    [SerializeField] private Button          saveButton;     // Save
-    [SerializeField] private Button          backButton;     // Back ke Home (opsional)
+    [Tooltip("Header text that shows 'Create Journal' / 'Edit Journal' (optional).")]
+    [SerializeField] private TextMeshProUGUI headerText;
+    [Tooltip("Input field for the journal title (may be empty; derived from content).")]
+    [SerializeField] private TMP_InputField  titleInput;
+    [Tooltip("Input field for the journal content (required).")]
+    [SerializeField] private TMP_InputField  contentInput;
+    [Tooltip("Save button.")]
+    [SerializeField] private Button          saveButton;
+    [Tooltip("Back button to return to Home (optional).")]
+    [SerializeField] private Button          backButton;
 
     [Header("DeleteCanvas")]
-    [SerializeField] private TextMeshProUGUI deleteTitleText; // Teks konfirmasi (opsional)
+    [Tooltip("Confirmation text (optional).")]
+    [SerializeField] private TextMeshProUGUI deleteTitleText;
     [SerializeField] private Button          deleteYesButton;
     [SerializeField] private Button          deleteNoButton;
     [SerializeField] private Button          deleteNoButton2;
 
     [Header("Validation (Optional)")]
-    [SerializeField] private TextMeshProUGUI validationLabel; // tempat pesan error
+    [Tooltip("Label to show validation errors.")]
+    [SerializeField] private TextMeshProUGUI validationLabel;
 
     #endregion
 
@@ -44,16 +71,20 @@ public class JournalManager : MonoBehaviour
 
     private const string PrefKeyNickname = "Nickname";
 
+    /// <summary>UI mode for the journal canvas.</summary>
     private enum JournalMode { Create, Edit }
-    private JournalMode _mode;
 
-    private Journal _currentJournal;        // konteks edit
-    private Journal _journalPendingDelete;  // konteks delete
+    private JournalMode _mode;
+    private Journal _currentJournal;        // Edit context
+    private Journal _journalPendingDelete;  // Delete context
 
     #endregion
 
     #region Unity
 
+    /// <summary>
+    /// Initializes canvases, wires UI events, and fetches journals for the current user.
+    /// </summary>
     private void Start()
     {
         InitCanvases();
@@ -65,19 +96,29 @@ public class JournalManager : MonoBehaviour
 
     #region Init & Helpers
 
+    /// <summary>
+    /// Shows Home canvas by default and displays the "no notes" background initially.
+    /// </summary>
     private void InitCanvases()
     {
         ShowOnly(homeCanvas);
-        if (bgNoNotes != null) bgNoNotes.SetActive(true); // default tampil saat awal
+        if (bgNoNotes != null) bgNoNotes.SetActive(true);
     }
 
+    /// <summary>
+    /// Wires up button callbacks and ensures single listeners are attached.
+    /// </summary>
     private void BindUI()
     {
         if (newJournalButton != null)
+        {
             newJournalButton.onClick.AddListener(OpenCreate);
+        }
 
         if (backButton != null)
+        {
             backButton.onClick.AddListener(() => ShowOnly(homeCanvas));
+        }
 
         if (saveButton != null)
         {
@@ -86,10 +127,14 @@ public class JournalManager : MonoBehaviour
         }
 
         if (deleteNoButton != null)
+        {
             deleteNoButton.onClick.AddListener(() => ShowOnly(homeCanvas));
+        }
 
         if (deleteNoButton2 != null)
+        {
             deleteNoButton2.onClick.AddListener(() => ShowOnly(homeCanvas));
+        }
 
         if (deleteYesButton != null)
         {
@@ -98,25 +143,43 @@ public class JournalManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Activates only the specified canvas and deactivates the others.
+    /// </summary>
+    /// <param name="target">Canvas GameObject to show.</param>
     private void ShowOnly(GameObject target)
     {
-        homeCanvas.SetActive(target == homeCanvas);
-        journalCanvas.SetActive(target == journalCanvas);
-        deleteCanvas.SetActive(target == deleteCanvas);
+        if (homeCanvas    != null) homeCanvas.SetActive(target == homeCanvas);
+        if (journalCanvas != null) journalCanvas.SetActive(target == journalCanvas);
+        if (deleteCanvas  != null) deleteCanvas.SetActive(target == deleteCanvas);
     }
 
+    /// <summary>
+    /// Removes all instantiated journal entry items from the list.
+    /// </summary>
     private void ClearHomeList()
     {
         foreach (Transform c in homeContentParent)
+        {
             Destroy(c.gameObject);
+        }
     }
 
+    /// <summary>
+    /// Convenience: finds a TMP text under <paramref name="parent"/> by relative path and sets its text.
+    /// </summary>
     private static void SetTMP(GameObject parent, string path, string value)
     {
         var t = parent.transform.Find(path)?.GetComponent<TextMeshProUGUI>();
         if (t != null) t.text = value;
     }
 
+    /// <summary>
+    /// Formats the journal's creation (or updated) time for display.
+    /// </summary>
+    /// <remarks>
+    /// Uses pattern "dd/MM/yyyy hh:mm tt" with <see cref="CultureInfo.InvariantCulture"/>.
+    /// </remarks>
     private static string FormatCreatedAt(Journal j)
     {
         var dt = j.CreatedAt != default ? j.CreatedAt : j.UpdatedAt;
@@ -124,6 +187,10 @@ public class JournalManager : MonoBehaviour
     }
 
     // ----- validation helpers -----
+
+    /// <summary>
+    /// Wires validation to title/content inputs and refreshes initial state.
+    /// </summary>
     private void WireValidation()
     {
         titleInput.onValueChanged.RemoveAllListeners();
@@ -135,23 +202,30 @@ public class JournalManager : MonoBehaviour
         RefreshValidation();
     }
 
+    /// <summary>
+    /// Re-evaluates validation, updates UI error label and save button interactivity.
+    /// </summary>
     private void RefreshValidation()
     {
         string msg;
         bool ok = ValidateInputs(out msg);
 
-        if (validationLabel) validationLabel.text = ok ? "" : msg;
-        if (saveButton) saveButton.interactable = ok;
+        if (validationLabel != null) validationLabel.text = ok ? string.Empty : msg;
+        if (saveButton != null) saveButton.interactable = ok;
     }
 
-    // Aturan baru: content WAJIB, title BOLEH kosong
+    /// <summary>
+    /// Business rule: content is required; title may be empty (auto-derived).
+    /// </summary>
+    /// <param name="message">Output validation message if invalid; otherwise null.</param>
+    /// <returns>True if inputs are valid; otherwise false.</returns>
     private bool ValidateInputs(out string message)
     {
-        var c = (contentInput?.text ?? "").Trim();
+        var c = (contentInput?.text ?? string.Empty).Trim();
 
         if (string.IsNullOrWhiteSpace(c))
         {
-            message = "Isi jurnal tidak boleh kosong.";
+            message = "Journal content must not be empty.";
             return false;
         }
 
@@ -159,7 +233,12 @@ public class JournalManager : MonoBehaviour
         return true;
     }
 
-    // Ambil n kata pertama dari content untuk title otomatis
+    /// <summary>
+    /// Derives a short title from content using the first N words and caps total length.
+    /// </summary>
+    /// <param name="content">Content to sample words from.</param>
+    /// <param name="maxWords">Maximum number of words to use.</param>
+    /// <param name="maxChars">Maximum character length.</param>
     private static string DeriveTitleFromContent(string content, int maxWords = 3, int maxChars = 60)
     {
         if (string.IsNullOrWhiteSpace(content)) return "Untitled";
@@ -167,16 +246,17 @@ public class JournalManager : MonoBehaviour
         var words = Regex.Matches(content.Trim(), @"\S+");
         int take = Math.Min(maxWords, words.Count);
 
-        string title = "";
+        string title = string.Empty;
         for (int i = 0; i < take; i++)
         {
             if (i > 0) title += " ";
             title += words[i].Value;
         }
 
-        // keamanan panjang
         if (title.Length > maxChars)
+        {
             title = title.Substring(0, maxChars);
+        }
 
         return title;
     }
@@ -185,9 +265,12 @@ public class JournalManager : MonoBehaviour
 
     #region Data
 
+    /// <summary>
+    /// Fetches all journals for the current user (from PlayerPrefs "Nickname").
+    /// </summary>
     private void FetchUserJournals()
     {
-        var userId = PlayerPrefs.GetString(PrefKeyNickname, "");
+        var userId = PlayerPrefs.GetString(PrefKeyNickname, string.Empty);
         if (string.IsNullOrEmpty(userId))
         {
             Debug.LogError("[JournalManager] No nickname in PlayerPrefs!");
@@ -203,13 +286,19 @@ public class JournalManager : MonoBehaviour
         );
     }
 
+    /// <summary>
+    /// Populates the Home list with journal cards (or shows empty state).
+    /// </summary>
+    /// <param name="journals">Array of user journals (may be null).</param>
     private void OnJournalsReceived(Journal[] journals)
     {
         ClearHomeList();
 
-        // Tampilkan BG-NoNotes kalau kosong, sembunyikan kalau ada isi
+        // Toggle "no notes" background
         if (bgNoNotes != null)
+        {
             bgNoNotes.SetActive(journals == null || journals.Length == 0);
+        }
 
         if (journals == null) return;
 
@@ -218,12 +307,12 @@ public class JournalManager : MonoBehaviour
             var go = Instantiate(journalEntryPrefab, homeContentParent);
             go.name = $"Journal_{j.Id}";
 
-            // Isi teks di prefab (ubah path jika hierarchy berbeda)
-            SetTMP(go, "TitleText",   j.Title);
-            SetTMP(go, "ContentText", j.Content);
+            // Fill prefab text (update the paths to match your prefab hierarchy)
+            SetTMP(go, "TitleText",                 j.Title);
+            SetTMP(go, "ContentText",               j.Content);
             SetTMP(go, "TimestampBG/TimestampText", FormatCreatedAt(j));
 
-            // Hook tombol Edit & Delete dari prefab
+            // Wire Edit & Delete from the prefab component
             var entry = go.GetComponent<JournalEntry>();
             if (entry == null) entry = go.AddComponent<JournalEntry>();
             entry.Setup(
@@ -237,56 +326,67 @@ public class JournalManager : MonoBehaviour
 
     #region Create & Edit (JournalCanvas)
 
+    /// <summary>
+    /// Opens the Journal canvas in Create mode and wires validation.
+    /// </summary>
     private void OpenCreate()
     {
         _mode = JournalMode.Create;
         _currentJournal = null;
 
-        if (headerText) headerText.text = "Create Journal";
-        titleInput.text   = "";   // boleh kosong → nanti otomatis
-        contentInput.text = "";
+        if (headerText != null) headerText.text = "Create Journal";
+        if (titleInput   != null) titleInput.text   = string.Empty; // title may be auto-derived
+        if (contentInput != null) contentInput.text = string.Empty;
 
         ShowOnly(journalCanvas);
         WireValidation();
     }
 
+    /// <summary>
+    /// Opens the Journal canvas in Edit mode with the selected journal populated.
+    /// </summary>
+    /// <param name="j">Journal to edit.</param>
     private void OpenEdit(Journal j)
     {
         _mode = JournalMode.Edit;
         _currentJournal = j;
 
-        if (headerText) headerText.text = "Edit Journal";
-        titleInput.text   = j.Title;
-        contentInput.text = j.Content;
+        if (headerText  != null) headerText.text  = "Edit Journal";
+        if (titleInput  != null) titleInput.text  = j.Title;
+        if (contentInput!= null) contentInput.text= j.Content;
 
         ShowOnly(journalCanvas);
         WireValidation();
     }
 
+    /// <summary>
+    /// Validates inputs, derives a title if needed, and dispatches Create/Update service calls.
+    /// </summary>
     private void OnSaveClicked()
     {
-        if (!ValidateInputs(out var _))
+        if (!ValidateInputs(out _))
         {
             RefreshValidation();
-            Debug.LogWarning("Content kosong — batal menyimpan.");
+            Debug.LogWarning("Content is empty — skipping save.");
             return;
         }
 
-        var rawTitle = (titleInput?.text ?? "").Trim();
-        var content  = (contentInput?.text ?? "").Trim();
+        var rawTitle = (titleInput  ? titleInput.text  : string.Empty).Trim();
+        var content  = (contentInput? contentInput.text: string.Empty).Trim();
 
-        // Jika title kosong → isi 3 kata pertama dari content
+        // If title is empty → derive from the first 3 words of content
         var title = string.IsNullOrWhiteSpace(rawTitle)
                     ? DeriveTitleFromContent(content, 3, 60)
                     : rawTitle;
 
+        // Persist in Asia/Jakarta (UTC+7) as ISO-like string
         var nowIso = DateTime.UtcNow.AddHours(7).ToString("yyyy-MM-ddTHH:mm:ss");
 
         if (_mode == JournalMode.Create)
         {
             StartCoroutine(
                 ServiceManager.Instance.JournalService.CreateJournal(
-                    PlayerPrefs.GetString(PrefKeyNickname, ""),
+                    PlayerPrefs.GetString(PrefKeyNickname, string.Empty),
                     title,
                     content,
                     nowIso,
@@ -299,7 +399,7 @@ public class JournalManager : MonoBehaviour
                 )
             );
         }
-        else // Edit
+        else
         {
             StartCoroutine(
                 ServiceManager.Instance.JournalService.UpdateJournal(
@@ -309,7 +409,7 @@ public class JournalManager : MonoBehaviour
                     nowIso,
                     onSuccess: () =>
                     {
-                        // Perbarui cache lokal ringan
+                        // Light local cache update (optional; list is re-fetched anyway)
                         _currentJournal.Title     = title;
                         _currentJournal.Content   = content;
                         _currentJournal.UpdatedAt = DateTime.UtcNow.AddHours(7);
@@ -327,14 +427,22 @@ public class JournalManager : MonoBehaviour
 
     #region Delete (DeleteCanvas)
 
+    /// <summary>
+    /// Opens the delete confirmation dialog for the specified journal.
+    /// </summary>
     private void OpenDeleteDialog(Journal j)
     {
         _journalPendingDelete = j;
         if (deleteTitleText != null)
-            deleteTitleText.text = $"Hapus \"{j.Title}\" ?";
+        {
+            deleteTitleText.text = $"Delete \"{j.Title}\" ?";
+        }
         ShowOnly(deleteCanvas);
     }
 
+    /// <summary>
+    /// Confirms deletion: calls service to delete and refreshes list on success.
+    /// </summary>
     private void ConfirmDeleteJournal()
     {
         if (_journalPendingDelete == null)

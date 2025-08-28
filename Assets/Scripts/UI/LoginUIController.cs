@@ -2,26 +2,45 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
+/// <summary>
+/// Controls the login UI flow:
+/// - Handles nickname/full name input
+/// - Validates input locally
+/// - Calls the <see cref="UserService"/> to upsert (insert/update) the user
+/// - Routes errors to the appropriate error label
+/// - Saves the nickname in PlayerPrefs on success
+/// - Loads the target scene via <see cref="SceneButtonHandler"/>
+/// </summary>
 public class LoginUIController : MonoBehaviour
 {
     #region Inspector Fields
 
     [Header("UI References")]
+    [Tooltip("Input field for the user's full name.")]
     [SerializeField] private TMP_InputField fullNameInput;
+
+    [Tooltip("Input field for the user's nickname (required).")]
     [SerializeField] private TMP_InputField nicknameInput;
+
+    [Tooltip("Button to continue login once inputs are validated.")]
     [SerializeField] private Button continueButton;
 
     [Header("Error Labels (Separated)")]
+    [Tooltip("Error label for nickname-related errors.")]
     [SerializeField] private TextMeshProUGUI nicknameErrorText;
+
+    [Tooltip("Error label for full-name-related errors.")]
     [SerializeField] private TextMeshProUGUI fullNameErrorText;
 
+    [Header("Scene Navigation")]
+    [Tooltip("Handler responsible for loading the next scene after login.")]
     [SerializeField] private SceneButtonHandler sceneButtonHandler;
 
     #endregion
 
     #region Constants
 
-    private const string NicknameRequiredMessage = "Nickname wajib diisi.";
+    private const string NicknameRequiredMessage = "Nickname is required.";
 
     #endregion
 
@@ -29,11 +48,13 @@ public class LoginUIController : MonoBehaviour
 
     private void Start()
     {
+        // Ensure error labels are clear on startup
         ClearAllErrors();
 
+        // Hook up button and input field events
         continueButton.onClick.AddListener(OnContinueClicked);
 
-        // Hanya bersihkan error terkait saat field berubah
+        // Clear specific errors when user starts typing
         nicknameInput.onValueChanged.AddListener(_ => ClearNicknameError());
         fullNameInput.onValueChanged.AddListener(_ => ClearFullNameError());
     }
@@ -42,50 +63,61 @@ public class LoginUIController : MonoBehaviour
 
     #region Event Handlers
 
+    /// <summary>
+    /// Handles the Continue button click:
+    /// - Validates local input
+    /// - Sends request to UserService
+    /// </summary>
     private void OnContinueClicked()
     {
         string nickname = nicknameInput.text.Trim();
         string fullName = fullNameInput.text.Trim();
 
-        // Bersihkan error lama sebelum validasi baru
         ClearAllErrors();
 
-        // Validasi lokal: nickname wajib
+        // Local validation: nickname is mandatory
         if (string.IsNullOrWhiteSpace(nickname))
         {
             ShowNicknameError(NicknameRequiredMessage);
             return;
         }
 
+        // Call backend via UserService
         StartCoroutine(ServiceManager.Instance.UserService.UpsertUser(
             nickname,
             fullName,
             onSuccess: () => ProcessLoginSuccess(nickname),
-            onError: err => HandleServiceError(err)
+            onError: HandleServiceError
         ));
     }
 
+    /// <summary>
+    /// Processes a successful login:
+    /// - Saves nickname in PlayerPrefs
+    /// - Loads the target scene
+    /// </summary>
     private void ProcessLoginSuccess(string nickname)
     {
         PlayerPrefs.SetString("Nickname", nickname);
         PlayerPrefs.Save();
+
         Debug.Log($"[Login] Saved Nickname: {nickname}");
         sceneButtonHandler.LoadTargetScene();
     }
 
     #endregion
 
-    #region Error Routing
+    #region Error Handling
 
     /// <summary>
-    /// Meneruskan error dari service ke label yang tepat.
-    /// Asumsi: error fullname mismatch mengandung kata "nama lengkap".
-    /// Selain itu, tampilkan di label nickname (sebagai fallback umum).
+    /// Routes error messages to the appropriate UI label.
+    /// If the message contains "full name", it is shown under full name errors,
+    /// otherwise under nickname errors.
     /// </summary>
     private void HandleServiceError(string message)
     {
         if (!string.IsNullOrEmpty(message) &&
-            message.ToLower().Contains("nama lengkap"))
+            message.ToLower().Contains("full name"))
         {
             ShowFullNameError(message);
         }

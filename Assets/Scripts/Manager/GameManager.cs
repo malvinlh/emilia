@@ -1,9 +1,22 @@
 using UnityEngine;
 
+/// <summary>
+/// Central bootstrapper for the game.  
+/// 
+/// Responsibilities:
+/// - Implements a global <see cref="GameManager"/> singleton.
+/// - Ensures all core service managers (database, audio, scene flow, etc.) are initialized.
+/// - Instantiates their prefabs only if no instance currently exists.
+/// 
+/// Attach this script to a persistent GameObject in your initial scene.
+/// </summary>
 public class GameManager : MonoBehaviour
 {
     #region Singleton
 
+    /// <summary>
+    /// Global singleton instance of the <see cref="GameManager"/>.
+    /// </summary>
     public static GameManager Instance { get; private set; }
 
     #endregion
@@ -11,10 +24,19 @@ public class GameManager : MonoBehaviour
     #region Inspector Fields
 
     [Header("Manager Prefabs")]
+    [Tooltip("Prefab for the DatabaseManager (required).")]
     [SerializeField] private GameObject dbManagerPrefab;
+
+    [Tooltip("Prefab for the AudioManager (required).")]
     [SerializeField] private GameObject audioManagerPrefab;
+
+    [Tooltip("Prefab for the SceneFlowManager (required).")]
     [SerializeField] private GameObject sceneFlowManagerPrefab;
+
+    [Tooltip("Prefab for the ServiceManager (required).")]
     [SerializeField] private GameObject serviceManagerPrefab;
+
+    [Tooltip("Prefab for the FadeManager (required).")]
     [SerializeField] private GameObject fadeManagerPrefab;
 
     #endregion
@@ -32,7 +54,9 @@ public class GameManager : MonoBehaviour
     #region Initialization
 
     /// <summary>
-    /// Sets up the singleton instance. Returns true if this object is the singleton owner.
+    /// Initializes the singleton pattern.  
+    /// Returns true if this object is the active owner of the singleton,
+    /// otherwise destroys itself to enforce uniqueness.
     /// </summary>
     private bool TryInitSingleton()
     {
@@ -48,15 +72,16 @@ public class GameManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Ensures each core manager exists by instantiating its prefab if needed.
+    /// Ensures all core managers exist in the scene by instantiating their prefabs if needed.  
+    /// Checks the corresponding static <c>Instance</c> property for each manager.
     /// </summary>
     private void InitializeManagers()
     {
-        EnsureManager(EMILIA.Data.DatabaseManager.Instance,        dbManagerPrefab);
-        EnsureManager(AudioManager.Instance,                       audioManagerPrefab);
-        EnsureManager(SceneFlowManager.Instance,                   sceneFlowManagerPrefab);
-        EnsureManager(ServiceManager.Instance,                     serviceManagerPrefab);
-        EnsureManager(FadeManager.Instance,                        fadeManagerPrefab);
+        EnsureManager(EMILIA.Data.DatabaseManager.Instance, dbManagerPrefab);
+        EnsureManager(AudioManager.Instance,                audioManagerPrefab);
+        EnsureManager(SceneFlowManager.Instance,            sceneFlowManagerPrefab);
+        EnsureManager(ServiceManager.Instance,              serviceManagerPrefab);
+        EnsureManager(FadeManager.Instance,                 fadeManagerPrefab);
     }
 
     #endregion
@@ -64,12 +89,17 @@ public class GameManager : MonoBehaviour
     #region Helpers
 
     /// <summary>
-    /// Instantiates <paramref name="prefab"/> if <paramref name="existing"/> is null.
+    /// Instantiates the given <paramref name="prefab"/> if the <paramref name="existing"/> instance is null.  
+    /// Used to guarantee that a manager is always available at runtime.
     /// </summary>
+    /// <param name="existing">The current manager instance, or null if not present.</param>
+    /// <param name="prefab">Prefab to instantiate if the manager does not exist.</param>
     private static void EnsureManager(Object existing, GameObject prefab)
     {
-        if (existing == null)
+        if (existing == null && prefab != null)
+        {
             Instantiate(prefab);
+        }
     }
 
     #endregion

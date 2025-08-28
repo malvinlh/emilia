@@ -2,10 +2,23 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// Global fade manager that handles fade-in and fade-out transitions
+/// using a <see cref="CanvasGroup"/> overlay.
+/// 
+/// Features:
+/// - Singleton pattern (accessible via <see cref="Instance"/>).
+/// - Fade in/out coroutines with configurable duration.
+/// - Instantly force screen to black or clear.
+/// - Blocks raycasts during fade-out (to prevent accidental clicks).
+/// </summary>
 public class FadeManager : MonoBehaviour
 {
     #region Singleton
 
+    /// <summary>
+    /// Global singleton instance of the <see cref="FadeManager"/>.
+    /// </summary>
     public static FadeManager Instance { get; private set; }
 
     private void Awake()
@@ -17,7 +30,7 @@ public class FadeManager : MonoBehaviour
         }
         else
         {
-            Destroy(gameObject);
+            Destroy(gameObject); // enforce singleton
         }
     }
 
@@ -26,8 +39,11 @@ public class FadeManager : MonoBehaviour
     #region Inspector Fields
 
     [Header("Fade Settings")]
+    [Tooltip("CanvasGroup overlay used for fading effect.")]
     [SerializeField] private CanvasGroup _fadeCanvas;
-    [SerializeField] private float       _fadeDuration = 1f;
+
+    [Tooltip("Default fade duration in seconds.")]
+    [SerializeField] private float _fadeDuration = 1f;
 
     #endregion
 
@@ -35,7 +51,7 @@ public class FadeManager : MonoBehaviour
 
     private void Start()
     {
-        // Start fully black, then fade in
+        // Start fully black, then fade in to reveal scene
         _fadeCanvas.alpha = 1f;
         StartCoroutine(FadeInCoroutine());
     }
@@ -45,9 +61,10 @@ public class FadeManager : MonoBehaviour
     #region Public API
 
     /// <summary>
-    /// Fades the screen to black over the given duration (or default).
-    /// Blocks raycasts while fading out.
+    /// Fades the screen to black over the given duration (or the default).
+    /// Raycasts are blocked while the screen is fading out.
     /// </summary>
+    /// <param name="customDuration">Custom fade duration in seconds. If negative, uses default.</param>
     public IEnumerator FadeOutCoroutine(float customDuration = -1f)
     {
         float duration = GetDuration(customDuration);
@@ -56,8 +73,8 @@ public class FadeManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Fades the screen in from black to transparent over the default duration.
-    /// Unblocks raycasts when complete.
+    /// Fades the screen in from black to fully transparent using the default duration.
+    /// Raycasts are unblocked after fade completes.
     /// </summary>
     public IEnumerator FadeInCoroutine()
     {
@@ -66,7 +83,8 @@ public class FadeManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Instantly sets the screen to black and blocks raycasts.
+    /// Instantly sets the overlay to fully black and blocks raycasts.
+    /// Useful when transitioning immediately to a new scene.
     /// </summary>
     public void InstantBlack()
     {
@@ -74,7 +92,7 @@ public class FadeManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Instantly clears the screen (transparent) and unblocks raycasts.
+    /// Instantly clears the overlay (fully transparent) and unblocks raycasts.
     /// </summary>
     public void InstantClear()
     {
@@ -85,23 +103,38 @@ public class FadeManager : MonoBehaviour
 
     #region Private Helpers
 
+    /// <summary>
+    /// Resolves duration: returns custom if positive, otherwise default.
+    /// </summary>
     private float GetDuration(float customDuration)
     {
         return customDuration > 0f ? customDuration : _fadeDuration;
     }
 
+    /// <summary>
+    /// Coroutine that interpolates alpha of the <see cref="_fadeCanvas"/> 
+    /// between two values over time.
+    /// </summary>
+    /// <param name="from">Starting alpha (0 = clear, 1 = black).</param>
+    /// <param name="to">Target alpha.</param>
+    /// <param name="duration">Fade duration in seconds.</param>
     private IEnumerator FadeRoutine(float from, float to, float duration)
     {
         float elapsed = 0f;
+
         while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
             _fadeCanvas.alpha = Mathf.Lerp(from, to, elapsed / duration);
             yield return null;
         }
+
         _fadeCanvas.alpha = to;
     }
 
+    /// <summary>
+    /// Instantly sets alpha and raycast blocking state.
+    /// </summary>
     private void SetAlpha(float alpha, bool blockRaycasts)
     {
         _fadeCanvas.alpha = alpha;

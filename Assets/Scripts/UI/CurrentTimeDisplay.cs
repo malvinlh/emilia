@@ -1,18 +1,38 @@
 using UnityEngine;
-using TMPro;  // Remove if you are using UnityEngine.UI.Text instead
+using TMPro; // Remove if you prefer using UnityEngine.UI.Text instead
 
+/// <summary>
+/// Displays the current system time on a UI text element.
+/// Updates once per frame via Unity's <see cref="Update"/> loop.
+/// 
+/// Notes:
+/// - By default this uses <see cref="TextMeshProUGUI"/>.
+/// - To use Unity's legacy UI <c>Text</c>, replace the field type and remove TMP references.
+/// </summary>
 public class CurrentTimeDisplay : MonoBehaviour
 {
     [Header("UI Reference")]
-    public TextMeshProUGUI timeText; // For TMP text
-    // public Text timeText; // Uncomment if using legacy UI Text instead
+    [Tooltip("TMP text component where the current system time will be displayed.")]
+    public TextMeshProUGUI timeText;
 
-    void Update()
+    // If using legacy UI:
+    // public UnityEngine.UI.Text timeText;
+
+    /// <summary>
+    /// Unity callback called every frame.
+    /// Updates the text component with the current local system time.
+    /// </summary>
+    private void Update()
     {
-        // Get current system time and format it
+        if (timeText == null)
+        {
+            return; // Avoid null reference exceptions
+        }
+
+        // Get the current local system time, formatted as hh:mm AM/PM
         string currentTime = System.DateTime.Now.ToString("hh:mm tt");
 
-        // Assign to UI Text
+        // Display in the UI text
         timeText.text = currentTime;
     }
 }
