@@ -54,7 +54,7 @@ public class HistoryButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHa
 
     private void Awake()
     {
-        _chatManager = FindObjectOfType<ChatManager>();
+        _chatManager = FindFirstObjectByType<ChatManager>();
 
         // Register click listener
         var btn = GetComponent<Button>();
